@@ -1,0 +1,75 @@
+{
+  "expo": {
+    "name": "Aba Damideqi",
+    "slug": "aba-damideqi-app",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#000000"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.abadamideqi.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app needs access to location to help you find cars in your area.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app needs access to location to help you find cars in your area.",
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true,
+          "NSExceptionDomains": {
+            "localhost": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionMinimumTLSVersion": "1.0",
+              "NSIncludesSubdomains": true
+            },
+            "192.168.100.98": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionMinimumTLSVersion": "1.0",
+              "NSIncludesSubdomains": true,
+              "NSExceptionRequiresForwardSecrecy": false
+            },
+            "192.168.100.52": {
+              "NSExceptionAllowsInsecureHTTPLoads": true,
+              "NSExceptionMinimumTLSVersion": "1.0",
+              "NSIncludesSubdomains": true,
+              "NSExceptionRequiresForwardSecrecy": false
+            }
+          }
+        }
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/logo.png",
+        "backgroundColor": "#000000"
+      },
+      "package": "com.abadamideqi.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "web": {
+      "favicon": "./assets/logo.png",
+      "backgroundColor": "#000000"
+    },
+    "scheme": "aba-damideqi-app",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "primaryColor": "#000000",
+    "extra": {
+      "eas": {
+        "projectId": "e78a58d7-867e-41b1-bc1a-be101e96d6e7"
+      }
+    }
+  }
+}

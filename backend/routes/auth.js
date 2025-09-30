@@ -1,12 +1,15 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
-const { supabaseAdmin, supabaseClient } = require('../config/supabase');
-const authMiddleware = require('../middleware/auth');
+const supabaseAdmin = require('../config/supabaseAdmin');
+const supabaseClient = require('../config/supabaseClient');
+const generateReferralCode = require('../utils/referralCodeGenerator');
+const { sendVerificationEmail } = require('../services/emailService');
 
 const router = express.Router();
 
 // Referral helpers (3 letters + 2 digits)
 function genReferralCode() {
+  return generateReferralCode();
   const letters = Array.from({ length: 3 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
   const numbers = String(Math.floor(Math.random() * 100)).padStart(2, '0');
   return `${letters}${numbers}`;
@@ -94,19 +97,18 @@ router.post('/register', [
         error: 'Username already taken'
       });
     }
-    // Use regular signUp to trigger email verification
-    const { data, error } = await supabaseClient.auth.signUp({
+    // Create user without email confirmation (we'll handle it ourselves)
+    const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
-      options: {
-        data: {
-          first_name: firstName,
-          last_name: lastName,
-          username,
-          phone,
-          age: Number.parseInt(age, 10) || null
-        }
-      }
+      user_metadata: {
+        first_name: firstName,
+        last_name: lastName,
+        username,
+        phone,
+        age: Number.parseInt(age, 10) || null
+      },
+      email_confirm: true // Auto-confirm in Supabase, we'll track it ourselves
     });
 
     if (error) {
@@ -117,7 +119,11 @@ router.post('/register', [
       });
     }
 
-    // Create or update user_profiles with referral_code and basic info (email is NOT a column in user_profiles)
+    // Generate 6-digit verification code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
+
+    // Create or update user_profiles with verification code
     let profileCode;
     try {
       profileCode = await getOrCreateUniqueCode();
@@ -125,9 +131,20 @@ router.post('/register', [
         id: data.user.id,
         username: username,
         referral_code: profileCode,
+        email_verified: false,
+        verification_code: verificationCode,
+        verification_code_expires_at: expiresAt.toISOString()
       }, { onConflict: 'id' });
     } catch (e) {
       console.error('Failed to set referral_code for user_profiles:', e);
+    }
+
+    // Send verification email via Resend
+    try {
+      await sendVerificationEmail(email, verificationCode);
+    } catch (emailError) {
+      console.error('Failed to send verification email:', emailError);
+      // Don't fail registration if email fails
     }
 
     // If referralCode is present, validate and create invitation with status 'pending'
@@ -205,8 +222,14 @@ router.post('/login', [
       });
     }
 
-    // Check if email is verified
-    if (!data.user.email_confirmed_at) {
+    // Check if email is verified in user_profiles
+    const { data: profile } = await supabaseAdmin
+      .from('user_profiles')
+      .select('email_verified')
+      .eq('id', data.user.id)
+      .single();
+
+    if (!profile?.email_verified) {
       return res.status(403).json({
         success: false,
         error: 'Please verify your email before logging in',
@@ -333,5 +356,139 @@ router.post('/check-username', [
   }
 });
 
+// Verify email with code
+router.post('/verify-email', [
+  body('email').isEmail(),
+  body('code').isLength({ min: 6, max: 6 })
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid input'
+      });
+    }
+
+    const { email, code } = req.body;
+
+    // Find user by email
+    const { data: authUser } = await supabaseAdmin.auth.admin.listUsers();
+    const user = authUser?.users?.find(u => u.email === email);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Get profile with verification code
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('user_profiles')
+      .select('verification_code, verification_code_expires_at, email_verified')
+      .eq('id', user.id)
+      .single();
+
+    if (profileError || !profile) {
+      return res.status(404).json({
+        success: false,
+        error: 'Profile not found'
+      });
+    }
+
+    // Check if already verified
+    if (profile.email_verified) {
+      return res.json({
+        success: true,
+        message: 'Email already verified'
+      });
+    }
+
+    // Check if code matches
+    if (profile.verification_code !== code) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid verification code'
+      });
+    }
+
+    // Check if code expired
+    if (new Date(profile.verification_code_expires_at) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Verification code expired'
+      });
+    }
+
+    // Mark as verified
+    await supabaseAdmin
+      .from('user_profiles')
+      .update({
+        email_verified: true,
+        verification_code: null,
+        verification_code_expires_at: null
+      })
+      .eq('id', user.id);
+
+    res.json({
+      success: true,
+      message: 'Email verified successfully'
+    });
+  } catch (error) {
+    console.error('Verification error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Verification failed'
+    });
+  }
+});
+
+// Resend verification code
+router.post('/resend-verification', [
+  body('email').isEmail()
+], async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    // Find user
+    const { data: authUser } = await supabaseAdmin.auth.admin.listUsers();
+    const user = authUser?.users?.find(u => u.email === email);
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: 'User not found'
+      });
+    }
+
+    // Generate new code
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+
+    // Update code
+    await supabaseAdmin
+      .from('user_profiles')
+      .update({
+        verification_code: verificationCode,
+        verification_code_expires_at: expiresAt.toISOString()
+      })
+      .eq('id', user.id);
+
+    // Send email
+    await sendVerificationEmail(email, verificationCode);
+
+    res.json({
+      success: true,
+      message: 'Verification code sent'
+    });
+  } catch (error) {
+    console.error('Resend error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to resend code'
+    });
+  }
+});
 
 module.exports = router;

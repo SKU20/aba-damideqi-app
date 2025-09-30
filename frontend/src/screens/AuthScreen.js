@@ -201,22 +201,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
         }
       } catch (_) {}
       
-      // Check if email is verified
-      const session = await SupaAuth.getCurrentUser();
-      const isEmailVerified = session?.data?.user?.email_confirmed_at;
-      
-      if (!isEmailVerified) {
-        // Resend verification email
-        try {
-          await SupaAuth.resendOtp(loginData.email);
-        } catch (e) {
-          console.log('Failed to resend verification email:', e);
-        }
-        setPendingEmail(loginData.email);
-        setShowEmailVerification(true);
-        Alert.alert('', selectedLanguage === 'georgian' ? 'გთხოვთ დაადასტუროთ თქვენი ელ-ფოსტა. ახალი კოდი გამოგზავნილია.' : 'Please verify your email. A new code has been sent.');
-        return;
-      }
+      // Email verification handled by backend now
       
       if (result.data.hasActivePlan) {
         onAuthSuccess && onAuthSuccess(result.data.user, result.data.profile, true);
@@ -224,8 +209,21 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
         onAuthSuccess && onAuthSuccess(result.data.user, result.data.profile, false);
       }
     },
-    onError: (error) => {
-      Alert.alert('Login Failed', error.message || 'Login failed. Please try again.');
+    onError: async (error) => {
+      // Check if error is due to unverified email
+      if (error.message?.includes('verify your email')) {
+        // Resend verification code
+        try {
+          await AuthService.resendVerificationCode(loginData.email);
+        } catch (e) {
+          console.log('Failed to resend code:', e);
+        }
+        setPendingEmail(loginData.email);
+        setShowEmailVerification(true);
+        Alert.alert('', selectedLanguage === 'georgian' ? 'გთხოვთ დაადასტუროთ თქვენი ელ-ფოსტა. ახალი კოდი გამოგზავნილია.' : 'Please verify your email. A new code has been sent.');
+      } else {
+        Alert.alert('Login Failed', error.message || 'Login failed. Please try again.');
+      }
     }
   });
 

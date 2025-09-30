@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { authService } from '../services/supabaseClient';
+import AuthService from '../services/authService';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const EmailVerificationScreen = ({ email, onVerified, onBack, selectedLanguage = 'georgian' }) => {
@@ -62,14 +62,15 @@ const EmailVerificationScreen = ({ email, onVerified, onBack, selectedLanguage =
 
     setLoading(true);
     try {
-      const { error } = await authService.verifyOtp(email, code);
+      const result = await AuthService.verifyEmail(email, code);
       
-      if (error) {
-        if (error.message.includes('expired')) {
+      if (!result.success) {
+        if (result.error?.includes('expired')) {
           Alert.alert('', t.codeExpired);
         } else {
           Alert.alert('', t.invalidCode);
         }
+        setLoading(false);
         return;
       }
 
@@ -88,10 +89,11 @@ const EmailVerificationScreen = ({ email, onVerified, onBack, selectedLanguage =
 
     setResending(true);
     try {
-      const { error } = await authService.resendOtp(email);
+      const result = await AuthService.resendVerificationCode(email);
       
-      if (error) {
+      if (!result.success) {
         Alert.alert('', 'Failed to resend code');
+        setResending(false);
         return;
       }
 

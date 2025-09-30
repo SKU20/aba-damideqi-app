@@ -197,6 +197,38 @@ class AuthService {
   getStoredUser() { return this.user; }
   isAuthenticated() { return !!this.token; }
   getApiUrl() { return this.apiUrl; }
+
+  // Verify email with code
+  async verifyEmail(email, code) {
+    try {
+      const response = await fetch(`${this.apiUrl}/auth/verify-email`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, code })
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Resend verification code
+  async resendVerificationCode(email) {
+    try {
+      const response = await fetch(`${this.apiUrl}/auth/resend-verification`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+
+      const data = await response.json();
+      return data;
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
 }
 
 export default new AuthService();

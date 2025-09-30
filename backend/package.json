@@ -11,6 +11,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@getbrevo/brevo": "^3.0.1",
     "@supabase/supabase-js": "^2.57.4",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",

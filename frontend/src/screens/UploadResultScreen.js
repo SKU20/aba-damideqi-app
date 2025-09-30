@@ -1,11 +1,11 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, SafeAreaView, Alert, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Alert, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { supabase } from '../services/supabaseClient';
 import carService from '../services/carService';
 import processorService from '../services/processorService';
-
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 const UploadResultScreen = ({ route, navigation, selectedLanguage: propLang }) => {
   // Props via navigation
   const { vehicleType = 'car', range = '0-100' } = route?.params || {};

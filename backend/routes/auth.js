@@ -5,6 +5,27 @@ const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
+// Referral helpers (3 letters + 2 digits)
+function genReferralCode() {
+  const letters = Array.from({ length: 3 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
+  const numbers = String(Math.floor(Math.random() * 100)).padStart(2, '0');
+  return `${letters}${numbers}`;
+}
+
+async function getOrCreateUniqueCode() {
+  for (let i = 0; i < 12; i++) {
+    const code = genReferralCode();
+    const { data, error } = await supabaseAdmin
+      .from('user_profiles')
+      .select('id')
+      .eq('referral_code', code)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return code;
+  }
+  throw new Error('Could not generate unique referral code');
+}
+
 // =====================
 // Helper Functions
 // =====================
@@ -58,7 +79,8 @@ router.post('/register', [
       });
     }
 
-    const { email, password, firstName, lastName, username, phone, age } = req.body;
+    const { email, password, firstName, lastName, username, phone, age, referralCode } = req.body;
+    const safeReferral = (referralCode || '').toString().trim().toUpperCase();
 
     const { data: existingUser } = await supabaseAdmin
       .from('user_profiles')
@@ -80,7 +102,7 @@ router.post('/register', [
         last_name: lastName,
         username,
         phone,
-        age: parseInt(age)
+        age: Number.parseInt(age, 10) || null
       },
       email_confirm: true
     });
@@ -91,6 +113,43 @@ router.post('/register', [
         success: false,
         error: error.message
       });
+    }
+
+    // Create or update user_profiles with referral_code and basic info (email is NOT a column in user_profiles)
+    let profileCode;
+    try {
+      profileCode = await getOrCreateUniqueCode();
+      await supabaseAdmin.from('user_profiles').upsert({
+        id: data.user.id,
+        username: username,
+        referral_code: profileCode,
+      }, { onConflict: 'id' });
+    } catch (e) {
+      console.error('Failed to set referral_code for user_profiles:', e);
+    }
+
+    // If referralCode is present, validate and create invitation with status 'pending'
+    if (safeReferral && typeof safeReferral === 'string') {
+      try {
+        const { data: inviter, error: invErr } = await supabaseAdmin
+          .from('user_profiles')
+          .select('id, referral_code')
+          .eq('referral_code', safeReferral)
+          .single();
+        if (!invErr && inviter && inviter.id !== data.user.id) {
+          await supabaseAdmin.from('referral_invitations').insert({
+            inviter_user_id: inviter.id,
+            invited_user_id: data.user.id,
+            invited_email: email,
+            code_used: safeReferral,
+            status: 'pending',
+            completed_at: new Date().toISOString(),
+            funds_paid: false
+          });
+        }
+      } catch (e) {
+        console.warn('Referral invite creation failed:', e?.message || e);
+      }
     }
 
     res.status(201).json({

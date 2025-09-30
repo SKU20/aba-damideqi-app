@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "283674341955",
+    "project_id": "aba-damideqi-app",
+    "storage_bucket": "aba-damideqi-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:283674341955:android:d1fdbfb5d298ecb2149af6",
+        "android_client_info": {
+          "package_name": "com.abadamideqi.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDfeEwTb1Ar3Zui-77A3MdXRhAhlElmay8"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

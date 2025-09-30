@@ -76,10 +76,12 @@ function arraysShallowEqual(a, b) {
   return true;
 }
 
-const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navigation, route, onLogout, goToAddCar, goToCarProfile, goToAddEvent, goToEventScreen, goToUploadResult, goToProfile, goToChatInbox, onTabChange = () => {}, isPreview = false }) => {
+const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navigation, route, onLogout, goToAddCar, goToCarProfile, goToAddEvent, goToEventScreen, goToUploadResult, goToProfile, goToChatInbox, onTabChange = () => {}, isPreview = false, hasActiveSubscription = false, goToSubscription, ensureSubscriptionFresh = () => {} }) => {
   // Use global QueryClient from App provider
   const queryClient = useQueryClient();
+  // Safe area insets for padding
   const insets = useSafeAreaInsets();
+  // Bottom nav spacer height used in several List components
   const NAV_HEIGHT = 56;
   const navSpacerHeight = NAV_HEIGHT + (insets?.bottom || 0);
   // Small buffer so last card doesn't touch the nav
@@ -88,7 +90,6 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
   const [showPasswordChange, setShowPasswordChange] = useState(false);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  // Cars are derived from queries (avoid local state to prevent loops)
   const [vehicleFilter, setVehicleFilter] = useState('car'); // 'car' | 'motorcycle'
   // derive events loading from query flag
   const [refreshing, setRefreshing] = useState(false);
@@ -97,10 +98,10 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
   const [dashboardRange, setDashboardRange] = useState('0-100'); // '0-100' | '0-200'
   const [expandedRunId, setExpandedRunId] = useState(null);
   const [signedUrlMap, setSignedUrlMap] = useState({});
+  // One-time guard to prevent infinite emergency refresh when backend is unreachable
+  const emergencyAttemptedRef = useRef(false);
 
   // Chat: unread total derived from query; in-app toast handled globally in App.js
-
-  // Infinite Queries for pagination with better cache settings
   const {
     data: userCarsInfiniteData,
     isLoading: userCarsLoading,
@@ -198,6 +199,12 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
     refetchOnMount: false, // Don't refetch when component mounts if data exists
   });
 
+  // Throttle AppState-driven refetches
+  const lastActiveRefetchRef = useRef(0);
+  // General refetch cooldown used by several effects
+  const REFETCH_COOLDOWN = 30_000; // 30 seconds
+  const lastRefetchTimeRef = useRef(0);
+
   // Ensure leaderboard fetches immediately when user opens Dashboard or changes filters while there
   useEffect(() => {
     if (activeTab === 'dashboard' && !isPreview) {
@@ -205,6 +212,11 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
       refetchRuns();
     }
   }, [activeTab, dashboardVehicle, dashboardRange, isPreview, refetchBest, refetchRuns]);
+
+  // On mount, force a fresh subscription check to clear stale overlay quickly
+  useEffect(() => {
+    try { if (typeof ensureSubscriptionFresh === 'function') ensureSubscriptionFresh(); } catch (_) {}
+  }, [ensureSubscriptionFresh]);
 
   // Removed refreshUnreadTotal function to prevent loops
 
@@ -535,6 +547,11 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
     events: []
   });
 
+  // Clear userCars fallback whenever signed-in user changes to prevent cross-user bleed
+React.useEffect(() => {
+  setFallbackData(prev => ({ ...prev, userCars: [] }));
+}, [user?.id]);
+
   // Store data as fallback when we have it
   React.useEffect(() => {
     if ((userCarsData && userCarsData.length > 0) || (allCarsData && allCarsData.length > 0)) {
@@ -547,12 +564,21 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
     }
   }, [userCarsData, allCarsData, allEvents]);
 
+  React.useEffect(() => {
+    if (activeTab === 'profile' && user?.id) {
+      refetchUserCars();
+    }
+  }, [activeTab, user?.id, refetchUserCars]);
+
 
   const handleVehicleFilterChange = (type) => {
     setVehicleFilter((prev) => (prev === type ? prev : type));
   };
   // Use fallback data when main data is empty - prioritize showing data immediately
-  const effectiveUserCarsData = (userCarsData && userCarsData.length > 0) ? userCarsData : fallbackData.userCars;
+  // Use fallback elsewhere, but NEVER on Profile tab
+const effectiveUserCarsData = activeTab === 'profile'
+? (Array.isArray(userCarsData) ? userCarsData : [])
+: ((userCarsData && userCarsData.length > 0) ? userCarsData : fallbackData.userCars);
   const effectiveAllCarsData = (allCarsData && allCarsData.length > 0) ? allCarsData : fallbackData.allCars;
   const effectiveEventsData = (allEvents && allEvents.length > 0) ? allEvents : fallbackData.events;
 
@@ -951,64 +977,22 @@ const allEvents = React.useMemo(() => {
   useEffect(() => {
     const handleAppStateChange = (nextAppState) => {
       if (nextAppState === 'active' && activeTab === 'home' && user?.id && isMountedRef.current) {
-        console.log('App became active, refetching data...');
-        refetchUserCars();
-        refetchAllCars();
-        refetchEvents();
-        refetchUnread();
+        const now = Date.now();
+        const COOLDOWN_MS = 30_000; // 30s to prevent spam
+        if (now - lastActiveRefetchRef.current < COOLDOWN_MS) {
+          return;
+        }
+        lastActiveRefetchRef.current = now;
+        try { refetchUserCars(); } catch (_) {}
+        try { refetchAllCars(); } catch (_) {}
+        try { refetchEvents(); } catch (_) {}
+        try { refetchUnread(); } catch (_) {}
       }
     };
 
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     return () => subscription?.remove();
   }, [activeTab, user?.id, refetchUserCars, refetchAllCars, refetchEvents, refetchUnread]);
-
-  // Force refresh when returning from other screens (rate-limited approach)
-  const lastRefetchTimeRef = useRef(0);
-  const REFETCH_COOLDOWN = 3000; // 3 seconds cooldown between refetches
-  
-  useEffect(() => {
-    if (activeTab === 'home' && user?.id && isMountedRef.current) {
-      console.log('Home tab focused, checking data integrity...');
-      
-      const now = Date.now();
-      const timeSinceLastRefetch = now - lastRefetchTimeRef.current;
-      
-      // Only refetch if we haven't refetched recently (rate limiting protection)
-      if (timeSinceLastRefetch > REFETCH_COOLDOWN) {
-        const timeoutId = setTimeout(() => {
-          if (isMountedRef.current) {
-            console.log('Force refreshing data on home focus...');
-            lastRefetchTimeRef.current = Date.now();
-            
-            // Only refetch if we don't have data
-            if ((!effectiveUserCarsData || effectiveUserCarsData.length === 0) || 
-                (!effectiveAllCarsData || effectiveAllCarsData.length === 0)) {
-              console.log('No data available, refetching without invalidating cache...');
-              
-              // Just refetch without invalidating cache to preserve existing data
-              Promise.all([
-                refetchUserCars(),
-                refetchAllCars(),
-                refetchEvents(),
-                refetchUnread()
-              ]).then(() => {
-                console.log('Home focus refetch completed');
-              }).catch(error => {
-                console.warn('Error in home focus refetch:', error);
-              });
-            } else {
-              console.log('Data already available, skipping refetch to avoid rate limiting');
-            }
-          }
-        }, 1000); // Longer delay to ensure we're fully back on home tab
-        
-        return () => clearTimeout(timeoutId);
-      } else {
-        console.log(`Skipping refetch due to cooldown (${Math.round((REFETCH_COOLDOWN - timeSinceLastRefetch) / 1000)}s remaining)`);
-      }
-    }
-  }, [activeTab, user?.id, queryClient, refetchUserCars, refetchAllCars, refetchEvents, refetchUnread, effectiveUserCarsData, effectiveAllCarsData]);
 
   // Emergency fallback: If we have no data after 5 seconds, force a complete refresh (rate-limited)
   useEffect(() => {
@@ -1358,6 +1342,7 @@ try {
       }}
       ListFooterComponent={<View style={{ height: navSpacerHeight }} />}
       ListHeaderComponent={(
+        
         <View>
           <View style={styles.eventsHeader}>
             <Text style={styles.eventsTitle}>{t.dashboardTitle}</Text>
@@ -1437,7 +1422,33 @@ try {
               ) : null}
             </View>
           </View>
+          {!hasActiveSubscription && (
+      <View pointerEvents="auto" style={styles.lockOverlay}>
+        <View style={styles.lockBox}>
+          <Ionicons name="lock-closed" size={20} color="#fff" />
+          <Text style={styles.lockTitle}>Feature available only with subscription</Text>
+          <Text style={styles.lockSubtitle}>Unlock to view and upload leaderboard results</Text>
+          <TouchableOpacity
+            style={styles.unlockBtn}
+            onPress={async () => {
+              try {
+                if (typeof ensureSubscriptionFresh === 'function') {
+                  const fresh = await ensureSubscriptionFresh();
+                  if (fresh) {
+                    // Overlay will disappear when parent prop updates
+                    return;
+                  }
+                }
+              } catch (_) {}
+              if (typeof goToSubscription === 'function') goToSubscription();
+            }}
+          >
+            <Text style={styles.unlockBtnText}>Unlock</Text>
+          </TouchableOpacity>
         </View>
+      </View>
+    )}
+  </View>
       )}
       renderItem={({ item, index }) => (
         <View style={styles.runCard}>
@@ -1514,6 +1525,7 @@ try {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={{ paddingBottom: Math.max(verticalScale(90), 90) }}
       ListFooterComponent={<View style={{ height: Math.max(verticalScale(80), 80) }} />}
+      
     />
   );
 
@@ -1548,7 +1560,28 @@ try {
     }
   };
 
-  const handleAddNewCar = () => {
+  const handleAddNewCar = async () => {
+    try {
+      const freshAllowed = typeof ensureSubscriptionFresh === 'function'
+        ? await ensureSubscriptionFresh()
+        : hasActiveSubscription;
+      if (!freshAllowed) {
+        try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
+        if (typeof goToSubscription === 'function') {
+          goToSubscription();
+        }
+        return;
+      }
+    } catch (_) {
+      // Fallback to current prop
+      if (!hasActiveSubscription) {
+        try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
+        if (typeof goToSubscription === 'function') {
+          goToSubscription();
+        }
+        return;
+      }
+    }
     if (typeof goToAddCar === 'function') {
       goToAddCar();
     } else if (navigation && typeof navigation.navigate === 'function') {
@@ -1676,53 +1709,65 @@ try {
             goToCarProfile(car);
           }
         }}
-        activeOpacity={0.7}
+        activeOpacity={0.9}
       >
-        {imageSource ? (
-          <Image
-            source={imageSource}
-            style={styles.carImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={[styles.carImage, styles.placeholderContainer]}>
-            <Ionicons 
-              name={car.vehicle_type === 'motorcycle' ? 'bicycle-outline' : 'car-outline'} 
-              size={moderateScale(30)} 
-              color="#ccc" 
+        <View style={styles.carImageContainer}>
+          {imageSource ? (
+            <Image
+              source={imageSource}
+              style={styles.carImage}
+              resizeMode="cover"
             />
-          </View>
-        )}
-        <View style={styles.carInfo}>
-          <Text style={styles.carTitle} numberOfLines={1}>
-            {getDisplayName(car)}
-          </Text>
-          <Text style={styles.carDetails} numberOfLines={1}>
-            {getCarDetails(car)}
-          </Text>
-          <Text style={styles.carType} numberOfLines={1}>
-            {getVehicleTypeDisplay(car)}
-          </Text>
-          {!!ownerUsername && (
-            <TouchableOpacity
-              onPress={(e) => {
-                e.stopPropagation?.();
-                if (goToProfile && ownerId) {
-                  goToProfile({ userId: ownerId, username: ownerUsername });
-                }
-              }}
-            >
-              <Text style={[styles.modificationsText, { color: '#007AFF' }]} numberOfLines={1}>
-                @{ownerUsername}
-              </Text>
-            </TouchableOpacity>
+          ) : (
+            <View style={[styles.carImage, styles.placeholderContainer]}>
+              <Ionicons 
+                name={car.vehicle_type === 'motorcycle' ? 'bicycle-outline' : 'car-outline'} 
+                size={moderateScale(40)} 
+                color="rgba(255,255,255,0.7)" 
+              />
+            </View>
           )}
-          <Text style={styles.modificationsText} numberOfLines={2}>
-            {getModificationsText(car)}
-          </Text>
-        </View>
-        <View style={styles.carEditButton}>
-          <Ionicons name="chevron-forward" size={moderateScale(18)} color="#666" />
+          
+          {/* Gradient Overlay */}
+          <View style={styles.carOverlay} />
+          
+          {/* Content Overlay */}
+          <View style={styles.carOverlayContent}>
+            <Text style={styles.carTitle} numberOfLines={1}>
+              {getDisplayName(car)}
+            </Text>
+            <Text style={styles.carDetails} numberOfLines={1}>
+              {getCarDetails(car)}
+            </Text>
+            <Text style={styles.carType} numberOfLines={1}>
+              {getVehicleTypeDisplay(car)}
+            </Text>
+            
+            <View style={styles.carBottomRow}>
+              <View style={styles.carOwnerInfo}>
+                {ownerUsername ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      if (goToProfile && ownerId) {
+                        goToProfile({ userId: ownerId, username: ownerUsername });
+                      }
+                    }}
+                  >
+                    <Text style={styles.carOwnerText} numberOfLines={1}>
+                      @{ownerUsername}
+                    </Text>
+                  </TouchableOpacity>
+                ) : null}
+                <Text style={styles.modificationsText} numberOfLines={2}>
+                  {getModificationsText(car)}
+                </Text>
+              </View>
+              <View style={styles.carActionButton}>
+                <Text style={styles.carActionText}>View</Text>
+              </View>
+            </View>
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -2070,16 +2115,6 @@ onPress={async () => {
   );
 
   const renderAllCars = () => {
-    console.log('renderAllCars called:', {
-      filteredCars: filteredCars?.length || 0,
-      allCarsLoading,
-      userCarsLoading,
-      effectiveAllCarsData: effectiveAllCarsData?.length || 0,
-      effectiveUserCarsData: effectiveUserCarsData?.length || 0,
-      hasEverLoadedData,
-      initialDataLoaded
-    });
-    
     // Check if we have any cached data available
     const hasCachedData = (effectiveAllCarsData && effectiveAllCarsData.length > 0) || 
                          (effectiveUserCarsData && effectiveUserCarsData.length > 0) ||
@@ -2173,7 +2208,7 @@ onPress={async () => {
 
       {/* Personal Information */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t.personalInfo}</Text>
+        <Text style={[styles.sectionTitle, { marginLeft: 15 }]}>{t.personalInfo}</Text>
         <View style={styles.infoRow}>
           <Text style={styles.label}>{t.firstName}</Text>
           <Text style={styles.value}>{profile?.first_name || user?.first_name || profile?.firstName || user?.firstName || 'N/A'}</Text>
@@ -2200,7 +2235,7 @@ onPress={async () => {
       {renderMyCars()}
       {/* Settings Section */}
       <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t.settings}</Text>
+      <Text style={[styles.sectionTitle, { marginLeft: 15 }]}>{t.settings}</Text>
         <View style={styles.settingRow}>
           <Text style={styles.settingLabel}>{t.selectLanguage}</Text>
           <View style={styles.languageToggle}>
@@ -2254,7 +2289,14 @@ onPress={async () => {
           <Ionicons name="log-out-outline" size={moderateScale(18)} color="#ff4757" />
         </TouchableOpacity>
       </View>
-      <View style={{ height: navSpacerHeight + bottomListPadding - 50}} />
+      <TouchableOpacity
+  style={styles.settingRow}
+  onPress={() => navigation?.navigate && navigation.navigate('Referal')}
+>
+  <Text style={styles.settingLabel}>Referral System</Text>
+  <Ionicons name="chevron-forward" size={moderateScale(18)} color="#666" />
+</TouchableOpacity>
+      <View style={{ height: navSpacerHeight + bottomListPadding - 40}} />
       {/* Password Change Modal */}
       {showPasswordChange && (
         <View style={styles.modal}>
@@ -2534,8 +2576,9 @@ const styles = StyleSheet.create({
   },
 
   headerLogo: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
+    marginLeft: 20
   },
 
   headerTitle: {
@@ -2757,66 +2800,140 @@ const styles = StyleSheet.create({
   },
 
   // Car Item Styles
-  carItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f5f5f5',
-    backgroundColor: '#fff',
-  },
+  // Replace your existing carItem styles with these:
 
-  carImage: {
-    width: 80,
-    height: 60,
-    borderRadius: 8,
-    backgroundColor: '#f8f8f8',
-    marginRight: 12,
-    borderWidth: 1,
-    borderColor: '#e8e8e8',
-  },
+carItem: {
+  marginHorizontal: 16,
+  marginBottom: 16,
+  borderRadius: 16,
+  overflow: 'hidden',
+  backgroundColor: '#fff',
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.15,
+  shadowRadius: 12,
+  elevation: 6,
+  borderWidth: 1,
+  borderColor: '#e8e8e8',
+},
 
-  placeholderContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
+carImageContainer: {
+  position: 'relative',
+  height: 220,
+  width: '100%',
+},
 
-  carInfo: {
-    flex: 1,
-    paddingRight: 8,
-  },
+carImage: {
+  width: '100%',
+  height: '100%',
+  borderRadius: 0, // Remove border radius since container handles it
+  backgroundColor: '#f8f8f8',
+},
 
-  carTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1a1a1a',
-    marginBottom: 4,
-  },
+placeholderContainer: {
+  justifyContent: 'center',
+  alignItems: 'center',
+  backgroundColor: '#1a1a1a',
+},
 
-  carDetails: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 2,
-  },
+// New overlay styles
+carOverlay: {
+  position: 'absolute',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.4)',
+},
 
-  carType: {
-    fontSize: 12,
-    color: '#999',
-    marginBottom: 4,
-    textTransform: 'uppercase',
-    fontWeight: '500',
-  },
+carOverlayContent: {
+  position: 'absolute',
+  bottom: 0,
+  left: 0,
+  right: 0,
+  padding: 16,
+},
 
-  modificationsText: {
-    fontSize: 13,
-    color: '#777',
-    fontStyle: 'italic',
-  },
+carTitle: {
+  fontSize: 18,
+  fontWeight: '700',
+  color: '#fff',
+  marginBottom: 8,
+  textShadowColor: 'rgba(0,0,0,0.8)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 3,
+},
 
-  carEditButton: {
-    padding: 8,
-  },
+carDetails: {
+  fontSize: 14,
+  color: 'rgba(255,255,255,0.9)',
+  marginBottom: 4,
+  textShadowColor: 'rgba(0,0,0,0.8)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+},
+
+carType: {
+  fontSize: 12,
+  color: 'rgba(255,255,255,0.8)',
+  marginBottom: 8,
+  textTransform: 'uppercase',
+  fontWeight: '600',
+  textShadowColor: 'rgba(0,0,0,0.8)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+},
+
+carBottomRow: {
+  flexDirection: 'row',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginTop: 8,
+},
+
+carOwnerInfo: {
+  flex: 1,
+},
+
+carOwnerText: {
+  fontSize: 13,
+  color: 'rgba(255,255,255,0.9)',
+  fontWeight: '600',
+  textShadowColor: 'rgba(0,0,0,0.8)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+  textDecorationLine: 'underline',
+},
+
+modificationsText: {
+  fontSize: 12,
+  color: 'rgba(255,255,255,0.8)',
+  fontStyle: 'italic',
+  marginTop: 2,
+  textShadowColor: 'rgba(0,0,0,0.8)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+},
+
+carActionButton: {
+  backgroundColor: 'rgba(255,255,255,0.2)',
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 20,
+  borderWidth: 1,
+  borderColor: 'rgba(255,255,255,0.3)',
+},
+
+carActionText: {
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: '600',
+  textShadowColor: 'rgba(0,0,0,0.8)',
+  textShadowOffset: { width: 0, height: 1 },
+  textShadowRadius: 2,
+},
+
+// Remove the old carInfo and carEditButton styles as they're no longer needed
 
   // Event Styles
   eventsContainer: {
@@ -3814,6 +3931,49 @@ toastClose: {
   marginLeft: 4,
   borderRadius: 12,
   backgroundColor: '#f5f5f5',
+},
+lockOverlay: {
+  position: 'absolute',
+  top: 100,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  backgroundColor: 'rgba(0,0,0,0.5)',
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 9999,
+},
+lockBox: {
+  backgroundColor: 'rgba(0,0,0,0.7)',
+  paddingHorizontal: 16,
+  paddingVertical: 16,
+  borderRadius: 12,
+  alignItems: 'center',
+  width: '80%',
+},
+lockTitle: {
+  color: '#fff',
+  fontWeight: '800',
+  fontSize: 16,
+  marginTop: 8,
+  textAlign: 'center',
+},
+lockSubtitle: {
+  color: '#ddd',
+  fontSize: 13,
+  marginTop: 6,
+  textAlign: 'center',
+},
+unlockBtn: {
+  marginTop: 12,
+  backgroundColor: '#000',
+  paddingHorizontal: 16,
+  paddingVertical: 10,
+  borderRadius: 8,
+},
+unlockBtnText: {
+  color: '#fff',
+  fontWeight: '700',
 },
 });
 

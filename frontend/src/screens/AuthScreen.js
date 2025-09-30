@@ -17,6 +17,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AuthService from '../services/authService';
 import { authService as SupaAuth } from '../services/supabaseClient';
+import { StatusBar } from 'expo-status-bar';
 
 
 const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
@@ -41,6 +42,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
     confirmPassword: '',
     age: '',
     username: '',
+    referralCode: '',
   });
 
   const texts = {
@@ -68,6 +70,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       invalidEmail: 'არასწორი მეილის ფორმატი',
       passwordTooShort: 'პაროლი უნდა იყოს მინიმუმ 6 სიმბოლო',
       usernameInvalid: 'მეტსახელი უნდა იყოს 3-30 სიმბოლო, მხოლოდ ასოები, რიცხვები და ქვედა ტირე',
+      referralCode: 'რეფერალ კოდი',
     },
     english: {
       login: 'Login',
@@ -93,6 +96,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       invalidEmail: 'Invalid email format',
       passwordTooShort: 'Password must be at least 6 characters',
       usernameInvalid: 'Username must be 3-30 characters, letters, numbers and underscores only',
+      referralCode: 'Referral code',
     }
   };
 
@@ -182,6 +186,15 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       
       // Invalidate user-related queries
       queryClient.invalidateQueries({ queryKey: ['currentUser'] });
+      // Also refresh userStatus gating immediately
+      try {
+        const userId = result?.data?.user?.id;
+        if (userId) {
+          queryClient.invalidateQueries({ queryKey: ['userStatus', userId] });
+          // Proactively refetch in the background
+          queryClient.refetchQueries({ queryKey: ['userStatus', userId] });
+        }
+      } catch (_) {}
       
       if (result.data.hasActivePlan) {
         onAuthSuccess && onAuthSuccess(result.data.user, result.data.profile, true);
@@ -202,7 +215,8 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
         lastName: userData.lastName,
         username: userData.username,
         phone: userData.phone,
-        age: userData.age
+        age: userData.age,
+        referralCode: userData.referralCode?.trim() || undefined
       });
       
       if (!result.success) {
@@ -229,6 +243,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
                 confirmPassword: '',
                 age: '',
                 username: '',
+                referralCode: '',
               });
               setAcceptedPolicy(false);
               setIsLogin(true);
@@ -319,6 +334,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
 
   return (
     <SafeAreaView style={styles.container}>
+      <StatusBar style="light" />
       <ImageBackground
         source={require('../../assets/logo.png')}
         style={styles.backgroundImage}
@@ -476,25 +492,38 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
                       )}
                     </View>
                   </View>
-                  
-                  <TextInput
-                    style={styles.input}
-                    placeholder={currentTexts.password}
-                    placeholderTextColor="#999"
-                    value={registerData.password}
-                    onChangeText={(text) => setRegisterData({...registerData, password: text})}
-                    secureTextEntry
-                    editable={!isLoading}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder={currentTexts.confirmPassword}
-                    placeholderTextColor="#999"
-                    value={registerData.confirmPassword}
-                    onChangeText={(text) => setRegisterData({...registerData, confirmPassword: text})}
-                    secureTextEntry
-                    editable={!isLoading}
-                  />
+
+{/* Password */}
+<TextInput
+  style={styles.input}
+  placeholder={currentTexts.password}
+  placeholderTextColor="#999"
+  value={registerData.password}
+  onChangeText={(text) => setRegisterData({ ...registerData, password: text })}
+  secureTextEntry
+  editable={!isLoading}
+/>
+
+{/* Confirm Password */}
+<TextInput
+  style={styles.input}
+  placeholder={currentTexts.confirmPassword}
+  placeholderTextColor="#999"
+  value={registerData.confirmPassword}
+  onChangeText={(text) => setRegisterData({ ...registerData, confirmPassword: text })}
+  secureTextEntry
+  editable={!isLoading}
+/>
+
+<TextInput
+  style={styles.input}
+  placeholder={currentTexts.referralCode}
+  placeholderTextColor="#999"
+  value={registerData.referralCode}
+  onChangeText={(text) => setRegisterData({ ...registerData, referralCode: text.trim() })}
+  autoCapitalize="characters"
+  editable={!isLoading}
+/>
                   
                   {/* Privacy Policy Checkbox */}
                   <TouchableOpacity 
@@ -537,7 +566,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: 'black',
-  },
+    },
   backgroundImage: {
     flex: 1,
     width: '100%',

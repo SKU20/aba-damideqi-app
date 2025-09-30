@@ -82,6 +82,23 @@ router.post('/', async (req, res) => {
       });
     }
 
+    // If this user was invited, mark the referral as completed and paid immediately
+    try {
+      const { data: inviteRow } = await supabaseAdmin
+        .from('referral_invitations')
+        .select('id, status, funds_paid')
+        .eq('invited_user_id', user_id)
+        .limit(1);
+      if (Array.isArray(inviteRow) && inviteRow.length > 0) {
+        await supabaseAdmin
+          .from('referral_invitations')
+          .update({ status: 'completed', funds_paid: true, completed_at: new Date().toISOString() })
+          .eq('id', inviteRow[0].id);
+      }
+    } catch (e) {
+      console.warn('Referral mark paid failed (non-fatal):', e?.message || e);
+    }
+
     // Return success response with subscription details
     res.status(201).json({
       success: true,

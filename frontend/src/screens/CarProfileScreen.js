@@ -4,15 +4,17 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   Image,
   Dimensions,
   FlatList,
   Alert,
-  Share
+  Share,
+  Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView } from 'react-native-safe-area-context';
+// Note: We avoid reanimated/gesture-handler worklets to keep Expo Go compatible
 
 const { width, height } = Dimensions.get('window');
 
@@ -20,7 +22,6 @@ const isSmallDevice = width < 360;
 const scale = (size) => (width / 375) * size;
 const verticalScale = (size) => (height / 812) * size;
 const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
-
 const CarProfileScreen = ({ 
   goBackToMain, 
   selectedLanguage, 
@@ -31,6 +32,8 @@ const CarProfileScreen = ({
   onDelete, 
   goToProfile,
   openChatWithUser,
+  hasActiveSubscription = false,
+  goToSubscription,
 }) => {
 
   // Calculate ownership locally as well for double-checking
@@ -38,6 +41,8 @@ const CarProfileScreen = ({
 
   const [currentPhotoIndex, setCurrentPhotoIndex] = useState(0);
   const photoFlatListRef = useRef(null);
+  const [isImageViewerVisible, setIsImageViewerVisible] = useState(false);
+  const [selectedImageIndex, setSelectedImageIndex] = useState(0);
 
   const texts = {
     georgian: {
@@ -260,9 +265,20 @@ const CarProfileScreen = ({
     );
   };
 
-  // Render photo item for main gallery
+  const openImageViewer = (index) => {
+    setSelectedImageIndex(index);
+    setIsImageViewerVisible(true);
+  };
+
+  const closeImageViewer = () => {
+    setIsImageViewerVisible(false);
+  };
   const renderPhotoItem = ({ item, index }) => (
-    <View style={styles.photoContainer}>
+    <TouchableOpacity 
+      style={styles.photoContainer}
+      onPress={() => openImageViewer(index)}
+      activeOpacity={0.9}
+    >
       <Image
         source={{ uri: item.photo_url }}
         style={styles.photo}
@@ -271,7 +287,7 @@ const CarProfileScreen = ({
           console.error('Image loading error:', error.nativeEvent.error);
         }}
       />
-    </View>
+    </TouchableOpacity>
   );
 
   // Render thumbnail
@@ -363,8 +379,19 @@ const CarProfileScreen = ({
             <Text style={styles.carTitle} numberOfLines={1}>{getDisplayName()}</Text>
             {!isActualOwner && (
               <TouchableOpacity
-                style={[styles.raceButton, { alignSelf: 'flex-start', marginTop: moderateScale(6) }]}
+                style={[
+                  styles.raceButton,
+                  { alignSelf: 'flex-start', marginTop: moderateScale(6) },
+                  !hasActiveSubscription && { backgroundColor: '#999' }
+                ]}
                 onPress={() => {
+                  if (!hasActiveSubscription) {
+                    try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
+                    if (typeof goToSubscription === 'function') {
+                      goToSubscription();
+                    }
+                    return;
+                  }
                   const oid = getOwnerId();
                   console.log('[CarProfileScreen] Race button pressed. ownerId=', oid, 'has openChatWithUser=', typeof openChatWithUser === 'function');
                   if (oid && typeof openChatWithUser === 'function') {
@@ -383,7 +410,7 @@ const CarProfileScreen = ({
                   }
                 }}
               >
-                <Ionicons name="chatbubble-ellipses-outline" size={moderateScale(14)} color="#fff" />
+                <Ionicons name={hasActiveSubscription ? 'chatbubble-ellipses-outline' : 'lock-closed-outline'} size={moderateScale(14)} color="#fff" />
                 <Text style={styles.raceButtonText}>{selectedLanguage === 'georgian' ? 'აბა დამიდექი!' : "Let's Race!"}</Text>
               </TouchableOpacity>
             )}
@@ -462,6 +489,68 @@ const CarProfileScreen = ({
           )}
         </View>
       </ScrollView>
+      {/* Fullscreen Image Viewer Modal */}
+      <Modal
+        visible={isImageViewerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={closeImageViewer}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={closeImageViewer}
+          >
+            <Ionicons name="close" size={30} color="#fff" />
+          </TouchableOpacity>
+          {/* iOS supports pinch-to-zoom via ScrollView. Android will display fullscreen without zoom. */}
+          <ScrollView
+            style={{ flex: 1, width: '100%' }}
+            contentContainerStyle={styles.imageContainer}
+            maximumZoomScale={4}
+            minimumZoomScale={1}
+            centerContent
+          >
+            <Image
+              source={{ uri: photos[selectedImageIndex]?.photo_url }}
+              style={styles.fullscreenImage}
+              resizeMode="contain"
+            />
+          </ScrollView>
+          
+          {photos.length > 1 && (
+            <View style={styles.imageNavigation}>
+              <TouchableOpacity
+                style={[styles.navButton, selectedImageIndex === 0 && styles.navButtonDisabled]}
+                onPress={() => {
+                  if (selectedImageIndex > 0) {
+                    setSelectedImageIndex(selectedImageIndex - 1);
+                  }
+                }}
+                disabled={selectedImageIndex === 0}
+              >
+                <Ionicons name="chevron-back" size={24} color="#fff" />
+              </TouchableOpacity>
+              
+              <Text style={styles.imageCounter}>
+                {selectedImageIndex + 1} / {photos.length}
+              </Text>
+              
+              <TouchableOpacity
+                style={[styles.navButton, selectedImageIndex === photos.length - 1 && styles.navButtonDisabled]}
+                onPress={() => {
+                  if (selectedImageIndex < photos.length - 1) {
+                    setSelectedImageIndex(selectedImageIndex + 1);
+                  }
+                }}
+                disabled={selectedImageIndex === photos.length - 1}
+              >
+                <Ionicons name="chevron-forward" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -777,6 +866,68 @@ const styles = StyleSheet.create({
     color: '#495057',
     lineHeight: moderateScale(22),
     fontStyle: 'italic',
+  },
+  // Fullscreen Image Viewer Styles
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1000,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  imageContainer: {
+    flex: 1,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  fullscreenImage: {
+    width: width,
+    height: height * 0.8,
+  },
+
+  imageNavigation: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    right: 0,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 30,
+  },
+
+  navButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+
+  navButtonDisabled: {
+    opacity: 0.3,
+  },
+
+  imageCounter: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

@@ -3,6 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const { supabaseClient, supabaseAdmin } = require('../config/supabase');
 const authMiddleware = require('../middleware/auth');
+const { requireSubscription } = require('../middleware/subscription');
 const { v4: uuidv4 } = require('uuid');
 const path = require('path');
 
@@ -191,16 +192,19 @@ router.get('/brands', async (req, res) => {
   try {
     const { vehicleType } = req.query;
     const table = vehicleType === 'motorcycle' ? 'moto_brands' : 'car_brands';
-    const { data, error } = await supabaseClient
+    const { data, error } = await supabaseAdmin
       .from(table)
       .select('id, name')
       .order('name', { ascending: true });
 
     if (error) throw error;
 
+    console.log(`[brands] table=${table} vehicleType=${vehicleType} rows=${(data||[]).length}`);
+
     res.json({
       success: true,
-      data: data || []
+      data: data || [],
+      count: (data || []).length
     });
   } catch (error) {
     console.error('Error fetching brands:', error);
@@ -219,17 +223,23 @@ router.get('/brands/:brandId/models', async (req, res) => {
     const { vehicleType } = req.query;
     const table = vehicleType === 'motorcycle' ? 'moto_models' : 'car_models';
 
-    const { data, error } = await supabaseClient
+    // Coerce brandId to number when possible (brand_id is integer)
+    const brandIdValue = /^\d+$/.test(String(brandId)) ? Number(brandId) : brandId;
+
+    const { data, error } = await supabaseAdmin
       .from(table)
       .select('id, name')
-      .eq('brand_id', brandId)
+      .eq('brand_id', brandIdValue)
       .order('name', { ascending: true });
 
     if (error) throw error;
 
+    console.log(`[models] table=${table} brandIdParam=${brandId} brandIdValue=${brandIdValue} rows=${(data||[]).length}`);
+
     res.json({
       success: true,
-      data: data || []
+      data: data || [],
+      count: (data || []).length
     });
   } catch (error) {
     console.error('Error fetching models:', error);
@@ -331,7 +341,7 @@ router.get('/user/:userId', async (req, res) => {
 });
 
 // Add new car
-router.post('/user/:userId', authMiddleware, async (req, res) => {
+router.post('/user/:userId', authMiddleware, requireSubscription, async (req, res) => {
   try {
     const { userId } = req.params;
     const {
@@ -440,17 +450,30 @@ router.post('/user/:userId', authMiddleware, async (req, res) => {
       const normalizedType = (vehicleType || '').toLowerCase();
       const limits = { car: 2, motorcycle: 2 };
       if (limits.hasOwnProperty(normalizedType)) {
-        const { count, error: countError } = await supabaseAdmin
-          .from('user_cars')
-          .select('id', { head: true, count: 'exact' })
-          .eq('user_id', userId)
-          .eq('vehicle_type', normalizedType);
+        // Support legacy values that might be in older rows
+        const typeAliases = normalizedType === 'motorcycle'
+          ? ['motorcycle', 'moto', 'motorbike', 'bike']
+          : ['car', 'auto'];
+
+        let count = 0;
+        let countError = null;
+        try {
+          const { count: cnt, error } = await supabaseAdmin
+            .from('user_cars')
+            .select('id', { head: true, count: 'exact' })
+            .eq('user_id', userId)
+            .in('vehicle_type', typeAliases);
+          count = cnt || 0;
+          countError = error || null;
+        } catch (e) {
+          countError = e;
+        }
 
         if (countError) {
           throw countError;
         }
 
-        if ((count || 0) >= limits[normalizedType]) {
+        if (count >= limits[normalizedType]) {
           return res.status(400).json({
             success: false,
             message: `You can only add up to ${limits[normalizedType]} ${normalizedType === 'car' ? 'cars' : 'motorcycles'}`
@@ -984,6 +1007,53 @@ router.delete('/user/:userId/:carId', async (req, res) => {
           console.error('Error deleting photos from storage:', storageError);
         }
       }
+    }
+
+    // Also delete leaderboard/dashboard runs and their uploaded videos for this car
+    try {
+      // 1) Fetch runs to know which storage objects to remove
+      const { data: runs, error: runsErr } = await supabaseAdmin
+        .from('video_runs')
+        .select('video_bucket, video_path')
+        .eq('user_id', userId)
+        .eq('car_id', carId);
+
+      if (!runsErr && Array.isArray(runs) && runs.length > 0) {
+        // Group paths by bucket
+        const byBucket = runs.reduce((acc, r) => {
+          const bucket = r.video_bucket || 'dragy-uploads';
+          const p = r.video_path;
+          if (p) {
+            if (!acc[bucket]) acc[bucket] = [];
+            acc[bucket].push(p);
+          }
+          return acc;
+        }, {});
+
+        // Delete in batches per bucket
+        for (const [bucket, paths] of Object.entries(byBucket)) {
+          if (Array.isArray(paths) && paths.length > 0) {
+            const { error: remErr } = await supabaseAdmin.storage
+              .from(bucket)
+              .remove(paths);
+            if (remErr) {
+              console.error(`Error deleting video files from storage bucket ${bucket}:`, remErr);
+            }
+          }
+        }
+      }
+
+      // 2) Delete the runs rows
+      const { error: delRunsErr } = await supabaseAdmin
+        .from('video_runs')
+        .delete()
+        .eq('user_id', userId)
+        .eq('car_id', carId);
+      if (delRunsErr) {
+        console.error('Error deleting video_runs rows for car:', delRunsErr);
+      }
+    } catch (e) {
+      console.error('Failed to cleanup video runs for car:', carId, e?.message || e);
     }
 
     // Delete the car

@@ -14,6 +14,15 @@
     "assetBundlePatterns": [
       "**/*"
     ],
+    "plugins": [
+      "expo-notifications"
+    ],
+    "notification": {
+      "icon": "./assets/logo.png",
+      "color": "#1F2937",
+      "androidMode": "default",
+      "androidCollapsedTitle": "New notifications"
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.abadamideqi.app",
@@ -45,11 +54,12 @@
       }
     },
     "android": {
+      "package": "com.abadamideqi.app",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/logo.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.abadamideqi.app",
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION"
@@ -70,6 +80,7 @@
       "eas": {
         "projectId": "e78a58d7-867e-41b1-bc1a-be101e96d6e7"
       }
-    }
+    },
+    "owner": "sku30"
   }
 }

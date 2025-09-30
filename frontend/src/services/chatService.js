@@ -319,7 +319,7 @@ export async function listMessages(conversationId, limit = 200) {
     .limit(limit)
   
   if (error) throw error
-  console.log('[chatService] listMessages fetched', (data||[]).length, 'messages for', conversationId)
+
   return data || []
 }
 
@@ -334,7 +334,6 @@ export async function markMessagesAsRead(conversationId) {
       p_user_id: myId
     })
     if (error) throw error
-    console.log('[chatService] Marked messages as read for conversation:', conversationId)
     return true
   } catch (e) {
     console.warn('[chatService] Error marking messages as read:', e.message)

@@ -4,7 +4,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   ScrollView,
   TextInput,
   Modal,
@@ -20,9 +19,11 @@ import {
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import CarService from '../services/carService';
+import locationService from '../services/locationService';
+import { getUserProfileLocation } from '../services/profileService';
 import { Ionicons } from '@expo/vector-icons';
 import imageValidationService from '../services/imageValidationService';
-
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 // Responsive scaling helpers
 const { width, height } = Dimensions.get('window');
 function scale(size) {
@@ -52,6 +53,7 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
   const [photos, setPhotos] = useState([]);
   const [motorcycleType, setMotorcycleType] = useState('');
   const [driveType, setDriveType] = useState('');
+  const [isValidatingPhotos, setIsValidatingPhotos] = useState(false);
 
   // Modal states
   const [showVehicleTypeModal, setShowVehicleTypeModal] = useState(false);
@@ -168,6 +170,7 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
       loading: 'იტვირთება...',
       saving: 'ინახება...',
       uploadingPhotos: 'ფოტოები იტვირთება...',
+      validatingPhotos: 'ფოტოები მუშავდება...',
       error: 'შეცდომა',
       success: 'წარმატებით',
       carAddedSuccess: 'მანქანა წარმატებით დაემატა',
@@ -178,7 +181,17 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
       motorcycleType: 'მოტოციკლეტის ტიპი',
       driveType: 'გადაცემის ტიპი',
       selectMotorcycleType: 'აირჩიეთ მოტოციკლეტის ტიპი',
-      selectDriveType: 'აირჩიეთ გადაცემის ტიპი'
+      selectDriveType: 'აირჩიეთ გადაცემის ტიპი',
+      vehicleLimitCars: 'თქვენ შეგიძლიათ დაამატოთ მაქსიმუმ 2 მანქანა პროფილზე.',
+      vehicleLimitMotorcycles: 'თქვენ შეგიძლიათ დაამატოთ მაქსიმუმ 2 მოტოციკლეტი პროფილზე.',
+      imageValidationPrefix: 'ფოტოების ვალიდაცია:',
+      imageValidationEngineReq: 'ზუსტად 1 ძრავის ფოტო უნდა იყოს მითითებული.',
+      imageValidationInvalidCount: 'არასწორი ფოტოები: ',
+      imageValidationDetails: 'დეტალები',
+      imageValidationEngineHint: 'ამჟამად გაქვთ ძრავის ფოტოები: ',
+      imageValidationEngineHintTail: ' (ზუსტად 1 იქნება საჭირო შენახვამდე)',
+      imageValidationCarRequired: 'ფოტოები უნდა იყოს მანქანის (გარე, შიდა ან ძრავი).',
+      imageValidationMotoRequired: 'ფოტოები უნდა იყოს მოტოციკლეტის.'
     },
     english: {
       title: 'Add New Vehicle',
@@ -217,6 +230,7 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
       loading: 'Loading...',
       saving: 'Saving...',
       uploadingPhotos: 'Uploading photos...',
+      validatingPhotos: 'Validating photos...',
       error: 'Error',
       success: 'Success',
       carAddedSuccess: 'Vehicle added successfully',
@@ -227,7 +241,18 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
       motorcycleType: 'Motorcycle Type',
       driveType: 'Drive Type',
       selectMotorcycleType: 'Select Motorcycle Type',
-      selectDriveType: 'Select Drive Type'
+      selectDriveType: 'Select Drive Type',
+      vehicleLimitCars: 'You can only add up to 2 cars on your profile.',
+      vehicleLimitMotorcycles: 'You can only add up to 2 motorcycles on your profile.',
+      imageValidationPrefix: 'Photo validation:',
+      imageValidationEngineReq: 'Exactly 1 engine photo is required.',
+      imageValidationInvalidCount: 'Invalid photos: ',
+      imageValidationDetails: 'Details',
+      imageValidationEngineHint: 'Current engine photos: ',
+      imageValidationEngineHintTail: ' (exactly 1 will be required before saving)'
+      ,
+      imageValidationCarRequired: 'Images must be of a car (exterior, interior, or engine).',
+      imageValidationMotoRequired: 'Images must be of a motorcycle.'
     }
   };
   
@@ -382,9 +407,11 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
       errors.push(selectedLanguage === 'georgian' ? 'ნონ-სტოკი მანქანისთვის კომენტარი აუცილებელია' : 'Comment is required for non-stock vehicles');
     }
 
-    // Require at least one photo
-    if (!Array.isArray(photos) || photos.length === 0) {
-      errors.push(selectedLanguage === 'georgian' ? 'გთხოვთ დაამატოთ მინიმუმ ერთი ფოტო' : 'Please add at least one photo');
+    // Require at least two photos
+    if (!Array.isArray(photos) || photos.length < 2) {
+      errors.push(
+        selectedLanguage === 'georgian' ? 'გთხოვთ ატვირთოთ მინიმუმ ორი ფოტო' : 'Please add at least two photos'
+      );
     }
 
     if (errors.length > 0) {
@@ -401,47 +428,92 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
     const { valid, resolvedBrandId, resolvedModelId } = validateForm();
     if (!valid) return;
 
-    // Validate selected photos content using CLIP zero-shot via Hugging Face API
+    // Validate selected photos FIRST using CLIP zero-shot via Hugging Face API
+    setIsValidatingPhotos(true);
     try {
       if (vehicleType === 'car' || vehicleType === 'motorcycle') {
         const result = await imageValidationService.validateVehiclePhotos({ vehicleType, photos });
+        // If validator unavailable (no API key / rate limited), block with a clear message
+        if (result?.skippedAll) {
+          const reasonLine = result?.reason ? `\n(${result.reason})` : '';
+          Alert.alert(
+            t.error,
+            (selectedLanguage === 'georgian'
+              ? 'ფოტოების ვალიდაცია ამ დროს ხელმიუწვდომელია. სცადეთ ხელახლა ან დააყენეთ EXPO_PUBLIC_HF_API_KEY.'
+              : 'Photo validation is unavailable right now. Please try again or set EXPO_PUBLIC_HF_API_KEY.') + reasonLine
+          );
+          return;
+        }
         if (!result.ok) {
-          const engineMsg = vehicleType === 'car' ? `\n${selectedLanguage === 'georgian' ? 'ძრავის ფოტო აუცილებელია ერთჯერადად' : 'Exactly one engine photo is required'}` : '';
-          const invalidMsg = result.invalid && result.invalid.length > 0
-            ? `\n${selectedLanguage === 'georgian' ? 'არასწორი ფოტო(ები):' : 'Invalid photos:'} ${result.invalid.length}`
+          // Build clearer, user-friendly reason
+          const invalidCount = (result.invalid || []).length;
+          const primaryMsg = invalidCount > 0
+            ? (vehicleType === 'car' ? t.imageValidationCarRequired : t.imageValidationMotoRequired)
             : '';
-          const main = selectedLanguage === 'georgian' ? 'ფოტოების ვალიდაცია ვერ გაიარა.' : 'Photo validation failed.';
+          const engineRequired = vehicleType === 'car' && typeof result.engineCount === 'number' && result.engineCount !== 1
+            ? `\n${t.imageValidationEngineReq}`
+            : '';
+          const invalidMsg = invalidCount > 0 ? `\n${t.imageValidationInvalidCount}${invalidCount}` : '';
+          const details = (result.invalid || []).slice(0, 3).map((x, i) => `${i + 1}. ${x.predicted || 'unknown'}`).join('\n');
+          const detailsBlock = details ? `\n${t.imageValidationDetails}:\n${details}` : '';
+          const main = `${t.imageValidationPrefix} ${selectedLanguage === 'georgian' ? 'ვერ გაიარა.' : 'failed.'}`;
           Alert.alert(
             selectedLanguage === 'georgian' ? 'შეცდომა' : 'Error',
-            `${main}\n${result.reason || ''}${engineMsg}${invalidMsg}`.trim()
+            `${main}\n${primaryMsg || result.reason || ''}${engineRequired}${invalidMsg}${detailsBlock}`.trim()
           );
           return;
         }
       }
     } catch (e) {
-      // If validation throws (e.g., network), proceed without blocking to avoid false negatives
-      console.warn('Image validation skipped:', e?.message || e);
+      // If validation throws (network etc.), block to avoid uploading without checks
+      Alert.alert(
+        t.error,
+        selectedLanguage === 'georgian'
+          ? 'ფოტოების ვალიდაცია ვერ შესრულდა. სცადეთ ხელახლა.'
+          : 'Photo validation could not be completed. Please try again.'
+      );
+      return;
+    } finally {
+      setIsValidatingPhotos(false);
     }
 
     // Client-side pre-check: enforce max 2 per type to avoid backend error and console spam
     try {
       if (vehicleType === 'car' || vehicleType === 'motorcycle') {
         const res = await CarService.getUserCars({ userId, limit: 100 });
-        const current = (res?.data || []).filter(c => (c.vehicle_type || '').toLowerCase() === vehicleType).length;
+        const aliases = vehicleType === 'motorcycle'
+          ? ['motorcycle', 'moto', 'motorbike', 'bike']
+          : ['car', 'auto'];
+        const current = (res?.data || []).filter(c => aliases.includes((c.vehicle_type || '').toLowerCase())).length;
         const limit = vehicleType === 'car' ? 2 : 2;
         if (current >= limit) {
-          Alert.alert(
-            t.error,
-            vehicleType === 'car'
-              ? `You can only add up to ${limit} cars`
-              : `You can only add up to ${limit} motorcycles`
-          );
+          const msg = vehicleType === 'car' ? t.vehicleLimitCars : t.vehicleLimitMotorcycles;
+          Alert.alert(t.error, msg);
           return;
         }
       }
     } catch (e) {
       // If pre-check fails (offline etc.), proceed and let backend validate
     }
+
+    // Try to find a city/region/country for this car
+    let cityVal = null, countryVal = null, regionVal = null;
+    try {
+      // Prefer profile location if available
+      const profLoc = await getUserProfileLocation(userId);
+      cityVal = profLoc?.city || null;
+      countryVal = profLoc?.country || null;
+      regionVal = profLoc?.region || null;
+    } catch (_) {}
+    try {
+      // If profile empty, fall back to current device geocoded city
+      if (!cityVal && !countryVal && !regionVal) {
+        const lc = await locationService.getCityCountry();
+        cityVal = lc?.city || null;
+        countryVal = lc?.country || null;
+        regionVal = lc?.region || null;
+      }
+    } catch (_) {}
 
     // Convert motorcycle cc to liters before sending to API
     const engineVolumeToSend = vehicleType === 'motorcycle'
@@ -461,7 +533,15 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
       driveType: vehicleType === 'motorcycle' ? driveType : null,
     });
 
-    addCarMutation.mutate(carData);
+    // Attach location fields so backend stores them in user_cars
+    const payload = {
+      ...carData,
+      city: cityVal,
+      country: countryVal,
+      region: regionVal,
+    };
+
+    addCarMutation.mutate(payload);
   };
 
   const handleYearChange = (text) => {
@@ -536,11 +616,12 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
     });
 
     if (!result.canceled) {
+      const ts = Date.now();
       const newPhotos = result.assets.map((asset, index) => ({
-        id: Date.now().toString() + index,
+        id: (ts + index).toString(),
         uri: asset.uri,
         type: asset.type || 'image/jpeg',
-        name: `library_${Date.now()}_${index}.jpg`,
+        name: `library_${ts}_${index}.jpg`,
       }));
       setPhotos(prev => [...prev, ...newPhotos]);
     }
@@ -976,6 +1057,16 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
       {renderModelModal()}
       {renderMotorcycleTypeModal()}
       {renderDriveTypeModal()}
+      <Modal visible={isValidatingPhotos} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={{ alignItems: 'center', gap: 12 }}>
+              <ActivityIndicator size="large" color="#000" />
+              <Text style={styles.loadingText}>{t.validatingPhotos}</Text>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };

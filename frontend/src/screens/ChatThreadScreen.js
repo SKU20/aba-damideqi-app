@@ -51,6 +51,23 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
     peerProfile: (peerId) => ['peer-profile', peerId],
   };
 
+  // Helpers to ensure stable ordering and deduplication
+  const sortByCreatedAt = useCallback((arr = []) => {
+    try {
+      return [...arr].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+    } catch (_) {
+      return arr;
+    }
+  }, []);
+
+  const dedupeById = useCallback((arr = []) => {
+    const map = new Map();
+    for (const m of arr) {
+      map.set(m.id, m);
+    }
+    return Array.from(map.values());
+  }, []);
+
   // Get My User ID Query
   const { data: currentUserId } = useQuery({
     queryKey: QUERY_KEYS.myUserId,
@@ -123,7 +140,9 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
         } catch (_) {}
         return m;
       }));
-      
+      // Ensure consistent order and no duplicates
+      try { list = dedupeById(list); } catch (_) {}
+      try { list = sortByCreatedAt(list); } catch (_) {}
       return list;
     },
     enabled: !!conversationId,
@@ -205,7 +224,12 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
         conversation_id: conversationId,
       };
 
-      queryClient.setQueryData(QUERY_KEYS.messages, (old = []) => [...old, optimisticMessage]);
+      // Smooth insert
+      try { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); } catch (_) {}
+      queryClient.setQueryData(QUERY_KEYS.messages, (old = []) => {
+        const next = [...old, optimisticMessage];
+        return sortByCreatedAt(next);
+      });
 
       // Auto-scroll
       setTimeout(() => {
@@ -456,25 +480,29 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
     const ch = chatService.subscribeToThreadMessages(conversationId, {
       onInsert: (message) => {
         if (!message) return;
+        try { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); } catch (_) {}
         queryClient.setQueryData(QUERY_KEYS.messages, (old = []) => {
-          const cleaned = old.filter(m => !String(m.id).startsWith('temp-'));
-          if (cleaned.some(m => m.id === message.id)) return cleaned;
-          const updated = [...cleaned, message];
-          if (message.sender_id && myId && message.sender_id !== myId) {
-            setTimeout(() => {
-              if (flatListRef.current) flatListRef.current.scrollToEnd({ animated: true });
-            }, 80);
-            // Mark as read when viewing this thread
-            try { markAsReadMutation.mutate(); } catch (_) {}
-          }
-          return updated;
+          // Do NOT drop all temp messages; just add the new one if missing
+          const exists = old.some(m => m.id === message.id);
+          const updated = exists ? old : [...old, message];
+          const ordered = sortByCreatedAt(updated);
+          return ordered;
         });
+        if (message.sender_id && myId && message.sender_id !== myId) {
+          setTimeout(() => {
+            if (flatListRef.current) flatListRef.current.scrollToEnd({ animated: true });
+          }, 80);
+          // Mark as read when viewing this thread
+          try { markAsReadMutation.mutate(); } catch (_) {}
+        }
       },
       onUpdate: (message) => {
         if (!message) return;
-        queryClient.setQueryData(QUERY_KEYS.messages, (old = []) =>
-          old.map(m => (m.id === message.id ? { ...m, ...message } : m))
-        );
+        try { LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut); } catch (_) {}
+        queryClient.setQueryData(QUERY_KEYS.messages, (old = []) => {
+          const mapped = old.map(m => (m.id === message.id ? { ...m, ...message } : m));
+          return sortByCreatedAt(mapped);
+        });
       }
     });
 
@@ -488,6 +516,29 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
     });
     return () => { try { unsub && unsub(); } catch (_) {} };
   }, [navigation, queryClient, conversationId]);
+
+  // Lightweight reconciliation: periodically fetch to heal any missed realtime events
+  useEffect(() => {
+    if (!conversationId) return;
+    let stopped = false;
+    const reconcile = async () => {
+      try {
+        const latest = await chatService.listMessages(conversationId, 200);
+        if (stopped || !Array.isArray(latest)) return;
+        queryClient.setQueryData(QUERY_KEYS.messages, (old = []) => {
+          // If sizes and last IDs match, skip to avoid extra renders
+          const prevLast = old[old.length - 1]?.id;
+          const newLast = latest[latest.length - 1]?.id;
+          if (old.length === latest.length && prevLast === newLast) return old;
+          try { return sortByCreatedAt(dedupeById([...old, ...latest])); } catch (_) { return latest; }
+        });
+      } catch (_) { /* ignore */ }
+    };
+    const t = setInterval(reconcile, 2500);
+    // Run once immediately to catch up on mount
+    reconcile();
+    return () => { stopped = true; clearInterval(t); };
+  }, [conversationId, queryClient, sortByCreatedAt, dedupeById]);
 
   // Also refresh peer profile on focus so online/away matches Inbox behavior
   useEffect(() => {
@@ -805,7 +856,7 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
           <FlatList
             ref={flatListRef}
             data={messages}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => String(item.id)}
             renderItem={renderItem}
             contentContainerStyle={[
               styles.messagesList,

@@ -15,8 +15,14 @@ const subscriptionRoutes = require('./routes/subscriptions');
 const carRoutes = require('./routes/cars');
 const eventsRoutes = require('./routes/events'); 
 const processorRoutes = require('./routes/processor');
+const validatorRoutes = require('./routes/validator');
+const referralRoutes = require('./routes/referral');
+const userStatusRoutes = require('./routes/userStatus');
+const adminRoutes = require('./routes/admin');
 
 const app = express();
+// Initialize server-side push for chat messages
+const { initMessagePushListener } = require('./push/onMessage');
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
@@ -101,7 +107,7 @@ const limiter = rateLimit({
     error: 'Too many requests from this IP, please try again later.'
   }
 });
-app.use(limiter);
+// app.use(limiter);
 
 const corsOptions = {
   origin: generateCorsOrigins(),
@@ -124,6 +130,10 @@ app.use('/api/subscriptions', subscriptionRoutes);
 app.use('/api/cars', carRoutes);
 app.use('/api', eventsRoutes); 
 app.use('/api/processor', processorRoutes);
+app.use('/api/validator', validatorRoutes);
+app.use('/api/referral', referralRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/user', userStatusRoutes);
 
 app.get('/api/health', async (req, res) => {
   try {
@@ -256,4 +266,6 @@ server.listen(PORT, "0.0.0.0", () => {
   });
   
   console.log(`✅ CORS enabled for automatic IP detection`);
+  // Start Supabase realtime listener for new messages -> send Expo push
+  try { initMessagePushListener(); } catch (e) { console.warn('[push] listener init failed:', e?.message || e); }
 });

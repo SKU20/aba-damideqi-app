@@ -15,7 +15,6 @@ class NotificationService {
     
     // Callbacks that will be set by the app
     this.onNewNotification = null
-    this.onShowNotificationPanel = null
     this.onUpdateUnreadCount = null
     this.onShowToast = null
     this.onRefreshUnreadTotal = null
@@ -28,25 +27,6 @@ class NotificationService {
     this.onUpdateUnreadCount = callbacks.onUpdateUnreadCount
     this.onShowToast = callbacks.onShowToast
     this.onRefreshUnreadTotal = callbacks.onRefreshUnreadTotal
-
-    // Set up notification handler
-    Notifications.setNotificationHandler({
-      handleNotification: async () => ({
-        shouldShowAlert: true,
-        shouldPlaySound: true,
-        shouldSetBadge: false
-      })
-    })
-
-    // Set Android notification channel
-    if (Platform.OS === 'android') {
-      Notifications.setNotificationChannelAsync('default', {
-        name: 'default',
-        importance: Notifications.AndroidImportance.MAX,
-        vibrationPattern: [0, 250, 250, 250],
-        lightColor: '#FF231F7C',
-      })
-    }
   }
 
   // Update current app state (screen and chat context)

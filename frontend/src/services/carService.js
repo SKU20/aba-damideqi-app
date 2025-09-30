@@ -3,9 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class CarService {
   constructor() {
-    this.API_BASE_URL = null;
-    this.isDiscovering = false;
-    this.discoveryPromise = null;
+    this.API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com/api';
   }
 
   // Get auth token from AsyncStorage (shared with EventService)
@@ -19,150 +17,8 @@ class CarService {
     }
   }
 
-  // Smart API discovery - Let backend tell us its IP
-  async discoverBackendUrl() {
-    if (this.API_BASE_URL) {
-      return this.API_BASE_URL;
-    }
-
-    // Prevent multiple simultaneous discoveries
-    if (this.isDiscovering) {
-      return this.discoveryPromise;
-    }
-
-    this.isDiscovering = true;
-    this.discoveryPromise = this._performDiscovery();
-    
-    try {
-      const result = await this.discoveryPromise;
-      this.API_BASE_URL = result;
-      return result;
-    } finally {
-      this.isDiscovering = false;
-      this.discoveryPromise = null;
-    }
-  }
-
-  async _performDiscovery() {
-    // Start with common development URLs
-    const commonUrls = [
-      process.env.EXPO_PUBLIC_API_URL,
-      'http://localhost:3000/api',
-      'http://127.0.0.1:3000/api',
-      // Add your most common IPs at the top for speed
-      'http://192.168.100.98:3000/api', // Your home WiFi
-      'http://172.20.10.2:3000/api',    // Your hotspot
-    ].filter(Boolean);
-
-    console.log('🔍 Discovering backend URL...');
-
-    // Quick test of known URLs first
-    for (const url of commonUrls) {
-      try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 1500); // Quick timeout
-        
-        const response = await fetch(`${url}/health`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success && data.localIPs) {
-            console.log('✅ Backend found at:', url);
-            console.log('🌐 Backend reports it\'s available at:', data.localIPs);
-            
-            // Store for future use
-            await AsyncStorage.setItem('discoveredBackendUrl', url);
-            await AsyncStorage.setItem('backendIPs', JSON.stringify(data.localIPs));
-            
-            return url;
-          }
-        }
-      } catch (error) {
-        continue; // Try next URL
-      }
-    }
-
-    // If no common URLs work, try the stored discovery
-    try {
-      const storedUrl = await AsyncStorage.getItem('discoveredBackendUrl');
-      const storedIPs = await AsyncStorage.getItem('backendIPs');
-      
-      if (storedUrl && storedIPs) {
-        console.log('📱 Trying previously discovered URL:', storedUrl);
-        
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 2000);
-        
-        const response = await fetch(`${storedUrl}/health`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-          signal: controller.signal
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success) {
-            return storedUrl;
-          }
-        }
-      }
-    } catch (error) {
-      console.log('Stored URL not working');
-    }
-
-    // Last resort: try URLs based on stored backend IPs
-    try {
-      const storedIPs = await AsyncStorage.getItem('backendIPs');
-      if (storedIPs) {
-        const ips = JSON.parse(storedIPs);
-        console.log('🎯 Trying URLs from backend\'s reported IPs:', ips);
-        
-        for (const ip of ips) {
-          const url = `http://${ip}:3000/api`;
-          try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 1500);
-            
-            const response = await fetch(`${url}/health`, {
-              method: 'GET',
-              headers: { 'Content-Type': 'application/json' },
-              signal: controller.signal
-            });
-            
-            clearTimeout(timeoutId);
-            
-            if (response.ok) {
-              const data = await response.json();
-              if (data.success) {
-                console.log('✅ Found backend at reported IP:', url);
-                await AsyncStorage.setItem('discoveredBackendUrl', url);
-                return url;
-              }
-            }
-          } catch (error) {
-            continue;
-          }
-        }
-      }
-    } catch (error) {
-      console.log('Could not use stored IPs');
-    }
-
-    console.log('❌ Could not discover backend URL');
-    throw new Error('Could not discover backend URL');
-  }
-
   async makeRequest(endpoint, options = {}) {
-    const baseUrl = await this.discoverBackendUrl();
-    const url = `${baseUrl}${endpoint}`;
+    const url = `${this.API_BASE_URL}${endpoint}`;
 
     // Attach Authorization when available
     const token = await this.getAuthToken();
@@ -419,8 +275,6 @@ class CarService {
   // Upload car photos
   async uploadCarPhotos(carId, userId, photos) {
     try {
-      const baseUrl = await this.discoverBackendUrl();
-      
       const formData = new FormData();
       formData.append('carId', carId);
       formData.append('userId', userId);
@@ -433,7 +287,7 @@ class CarService {
         });
       });
 
-      const response = await fetch(`${baseUrl}/cars/photos/upload`, {
+      const response = await fetch(`${this.API_BASE_URL}/cars/photos/upload`, {
         method: 'POST',
         headers: {
           'Content-Type': 'multipart/form-data',

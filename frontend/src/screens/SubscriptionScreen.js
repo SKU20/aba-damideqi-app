@@ -1,35 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ActivityIndicator, Alert, Dimensions, ScrollView } from 'react-native';
 import SubscriptionService from '../services/subscriptionService';
-
+import AuthService from '../services/authService';
 const { width, height } = Dimensions.get('window');
 
 // Responsive helpers
-const isSmallDevice = width < 360;
 const isMediumDevice = width < 400;
 const scale = (size) => (width / 375) * size; // Base on iPhone X width
 const verticalScale = (size) => (height / 812) * size;
 const moderateScale = (size, factor = 0.5) => size + (scale(size) - size) * factor;
 
-const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) => {
+const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId, refetchUserStatus }) => {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPlan, setSelectedPlan] = useState(null);
   const [creating, setCreating] = useState(false);
+  const [isInvited, setIsInvited] = useState(false);
 
   useEffect(() => {
     const fetchPlans = async () => {
       try {
         const result = await SubscriptionService.fetchPlans();
-        
         if (result.success) {
           setPlans(result.plans);
         } else {
           console.error('Failed to fetch plans:', result.error);
           Alert.alert(
             selectedLanguage === 'georgian' ? 'შეცდომა' : 'Error',
-            selectedLanguage === 'georgian' 
-              ? 'გეგმების ჩატვირთვა ვერ მოხერხდა' 
+            selectedLanguage === 'georgian'
+              ? 'გეგმების ჩატვირთვა ვერ მოხერხდა'
               : 'Failed to load plans'
           );
         }
@@ -37,8 +36,8 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
         console.error('Error in fetchPlans:', error);
         Alert.alert(
           selectedLanguage === 'georgian' ? 'შეცდომა' : 'Error',
-          selectedLanguage === 'georgian' 
-            ? 'ქსელის შეცდომა' 
+          selectedLanguage === 'georgian'
+            ? 'ქსელის შეცდომა'
             : 'Network error'
         );
       } finally {
@@ -48,6 +47,18 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
 
     fetchPlans();
   }, [selectedLanguage]);
+
+  useEffect(() => {
+    const checkInvited = async () => {
+      try {
+        const res = await AuthService.makeRequest('/referral/invited/me', { method: 'GET' });
+        setIsInvited(!!res?.invited);
+      } catch (_) {
+        setIsInvited(false);
+      }
+    };
+    checkInvited();
+  }, []);
 
   const handleSelectPlan = (planId) => {
     setSelectedPlan(planId);
@@ -73,57 +84,62 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
     }
 
     setCreating(true);
-    
-    try {
-      const result = await SubscriptionService.createSubscription(userId, selectedPlan);
 
-      if (result.success) {
-        Alert.alert(
-          selectedLanguage === 'georgian' ? 'წარმატება!' : 'Success!',
-          selectedLanguage === 'georgian' 
-            ? 'თქვენი გამოწერა წარმატებით შეიქმნა! 7-დღიანი უფასო საცდელი პერიოდი დაიწყო.'
-            : 'Your subscription has been created successfully! Your 7-day free trial has started.',
-          [
-            {
-              text: selectedLanguage === 'georgian' ? 'კარგი' : 'OK',
-              onPress: () => goToMain()
-            }
-          ]
-        );
-      } else {
-        // Handle specific error messages
-        let errorMessage = result.error || 'Unknown error occurred';
-        
-        if (result.error === 'User already has an active subscription') {
-          errorMessage = selectedLanguage === 'georgian' 
-            ? 'უკვე გაქვთ აქტიური გამოწერა'
-            : 'You already have an active subscription';
-        } else if (result.error === 'user_id and plan_id are required') {
-          errorMessage = selectedLanguage === 'georgian'
-            ? 'გთხოვთ აირჩიოთ გეგმა'
-            : 'Please select a plan';
-        } else if (result.error === 'Plan not found') {
-          errorMessage = selectedLanguage === 'georgian'
-            ? 'არჩეული გეგმა ვერ მოიძებნა'
-            : 'Selected plan not found';
+try {
+  const planObj = plans.find(p => p.id === selectedPlan);
+  const isMonthly = planObj?.duration_months === 1;
+
+  const result = await SubscriptionService.createSubscription(userId, selectedPlan, {
+    applyReferralDiscount: isInvited && isMonthly
+  });
+
+  if (result.success) {
+    try { if (typeof refetchUserStatus === 'function') refetchUserStatus(); } catch (_) {}
+
+    Alert.alert(
+      selectedLanguage === 'georgian' ? 'წარმატება!' : 'Success!',
+      selectedLanguage === 'georgian' 
+        ? 'თქვენი გამოწერა გააქტიურდა დაუყოვნებლივ.'
+        : 'Your subscription is now active immediately.',
+      [
+        {
+          text: selectedLanguage === 'georgian' ? 'კარგი' : 'OK',
+          onPress: () => goToMain()
         }
-
-        Alert.alert(
-          selectedLanguage === 'georgian' ? 'შეცდომა' : 'Error',
-          errorMessage
-        );
-      }
-    } catch (error) {
-      console.error('Unexpected error in handleConfirm:', error);
-      Alert.alert(
-        selectedLanguage === 'georgian' ? 'შეცდომა' : 'Error',
-        selectedLanguage === 'georgian'
-          ? 'მოულოდნელი შეცდომა. გთხოვთ სცადოთ მოგვიანებით.'
-          : 'Unexpected error occurred. Please try again later.'
-      );
-    } finally {
-      setCreating(false);
+      ]
+    );
+  } else {
+    let errorMessage = result.error || 'Unknown error occurred';
+    if (result.error === 'User already has an active subscription') {
+      errorMessage = selectedLanguage === 'georgian' 
+        ? 'უკვე გაქვთ აქტიური გამოწერა'
+        : 'You already have an active subscription';
+    } else if (result.error === 'user_id and plan_id are required') {
+      errorMessage = selectedLanguage === 'geორგიან'
+        ? 'გთხოვთ აირჩიოთ გეგმა'
+        : 'Please select a plan';
+    } else if (result.error === 'Plan not found') {
+      errorMessage = selectedLanguage === 'geორგიან'
+        ? 'არჩეული გეგმა ვერ მოიძებნა'
+        : 'Selected plan not found';
     }
+
+    Alert.alert(
+      selectedLanguage === 'geორგიან' ? 'შეცდომა' : 'Error',
+      errorMessage
+    );
+  }
+} catch (error) {
+  console.error('Unexpected error in handleConfirm:', error);
+  Alert.alert(
+    selectedLanguage === 'geორგიან' ? 'შეცდომა' : 'Error',
+    selectedLanguage === 'geორგიან'
+      ? 'მოულოდნელი შეცდომა. გთხოვთ სცადოთ მოგვიანებით.'
+      : 'Unexpected error occurred. Please try again later.'
+  );
+} finally {
+  setCreating(false);
+}
   };
 
   if (loading) {
@@ -153,16 +169,13 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
         >
           {selectedLanguage === 'georgian' ? 'აირჩიე გეგმა' : 'Choose Your Plan'}
         </Text>
-        <Text 
-          style={styles.subtitle}
-          adjustsFontSizeToFit
-          numberOfLines={2}
-          minimumFontScale={0.8}
-        >
-          {selectedLanguage === 'georgian'
-            ? 'პირველი კვირა უფასოა ყველა გეგმისთვის!'
-            : 'First week is free for all plans!'}
-        </Text>
+        {isInvited && (
+  <Text style={styles.subtitle} adjustsFontSizeToFit numberOfLines={2} minimumFontScale={0.8}>
+    {selectedLanguage === 'georgian'
+      ? 'რეფერალით დარეგისტრირების გამო, თვიურ გეგმაზე პირველი თვე -50%'
+      : 'Invited users get 50% off the first month on the monthly plan'}
+  </Text>
+)}
 
         <View style={styles.plansContainer}>
           {plans.length === 0 ? (
@@ -178,6 +191,9 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
               const planTitle = selectedLanguage === 'georgian' ? plan.name_ka : plan.name_en;
               const planDescription = selectedLanguage === 'georgian' ? plan.description_ka : plan.description_en;
               const isSelected = selectedPlan === plan.id;
+              const isMonthlyPlan = plan.duration_months === 1;
+              const hasHalfPrice = isInvited && isMonthlyPlan;
+              const displayPrice = hasHalfPrice ? (plan.price_gel / 2) : plan.price_gel;
               
               return (
                 <TouchableOpacity
@@ -198,20 +214,43 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
                   >
                     {planTitle}
                   </Text>
-                  <Text 
-                    style={styles.planPrice}
-                    adjustsFontSizeToFit
-                    numberOfLines={1}
-                    minimumFontScale={0.8}
-                  >
-                    {plan.price_gel} GEL / {
-                      plan.duration_months === 1 
-                        ? (selectedLanguage === 'georgian' ? 'თვე' : 'month')
-                        : plan.duration_months === 6 
-                        ? (selectedLanguage === 'georgian' ? '6 თვე' : '6 months')
-                        : (selectedLanguage === 'georgian' ? 'წელი' : 'year')
-                    }
-                  </Text>
+                                    <View style={{ alignItems: 'center', marginBottom: verticalScale(4) }}>
+                    {hasHalfPrice ? (
+                      <>
+                        <Text
+                          style={[styles.planPrice, { color: '#00FF99', fontWeight: '700' }]}
+                          adjustsFontSizeToFit
+                          numberOfLines={1}
+                          minimumFontScale={0.8}
+                        >
+                          {displayPrice} GEL / {selectedLanguage === 'georgian' ? 'თვე' : 'month'}
+                        </Text>
+                        <Text
+                          style={{ color: '#aaa', textDecorationLine: 'line-through', fontSize: moderateScale(12) }}
+                          adjustsFontSizeToFit
+                          numberOfLines={1}
+                          minimumFontScale={0.8}
+                        >
+                          {plan.price_gel} GEL
+                        </Text>
+                      </>
+                    ) : (
+                      <Text
+                        style={styles.planPrice}
+                        adjustsFontSizeToFit
+                        numberOfLines={1}
+                        minimumFontScale={0.8}
+                      >
+                        {plan.price_gel} GEL / {
+  isMonthlyPlan
+    ? (selectedLanguage === 'georgian' ? 'თვე' : 'month')
+    : plan.duration_months === 6
+    ? (selectedLanguage === 'georgian' ? '6 თვე' : '6 months')
+    : (selectedLanguage === 'georgian' ? 'წელი' : 'year')
+}
+                      </Text>
+                    )}
+                  </View>
                   <Text 
                     style={styles.planDescription}
                     adjustsFontSizeToFit
@@ -220,14 +259,11 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
                   >
                     {planDescription}
                   </Text>
-                  <Text 
-                    style={styles.planHighlight}
-                    adjustsFontSizeToFit
-                    numberOfLines={1}
-                    minimumFontScale={0.8}
-                  >
-                    {selectedLanguage === 'georgian' ? 'პირველი კვირა უფასოა!' : 'First week free!'}
-                  </Text>
+                  {isInvited && plan.duration_months === 1 && (
+  <Text style={styles.planHighlight} adjustsFontSizeToFit numberOfLines={1} minimumFontScale={0.8}>
+    {selectedLanguage === 'georgian' ? 'პირველი თვე -50%' : 'First month -50%'}
+  </Text>
+)}
                   {isSelected && (
                     <View style={styles.selectedIndicator}>
                       <Text style={styles.selectedText}>✓</Text>
@@ -248,8 +284,8 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
               minimumFontScale={0.8}
             >
               {selectedLanguage === 'georgian'
-                ? '7-დღიანი უფასო საცდელი პერიოდი დაიწყება დაუყოვნებლივ!'
-                : '7-day free trial will start immediately!'}
+  ? 'გადახდა დადასტურებულია და გამოწერა აქტიურდება დაუყოვნებლივ.'
+  : 'Payment is confirmed and your subscription activates immediately.'}
             </Text>
             <TouchableOpacity 
               style={[styles.confirmButton, creating && styles.disabledButton]} 
@@ -265,23 +301,23 @@ const SubscriptionScreen = ({ goToHome, goToMain, selectedLanguage, userId }) =>
                   numberOfLines={1}
                   minimumFontScale={0.8}
                 >
-                  {selectedLanguage === 'georgian' ? 'დადასტურება' : 'Start Free Trial'}
+                  {selectedLanguage === 'georgian' ? 'გააქტიურება' : 'Activate Subscription'}
                 </Text>
               )}
             </TouchableOpacity>
           </View>
         )}
         
-        <TouchableOpacity onPress={goToHome} disabled={creating} style={styles.backLinkContainer}>
+        <TouchableOpacity onPress={goToMain} disabled={creating} style={styles.backLinkContainer}>
           <Text 
             style={[styles.backLink, creating && styles.disabledText]}
             adjustsFontSizeToFit
             numberOfLines={1}
             minimumFontScale={0.8}
           >
-            {selectedLanguage === 'georgian' ? '← მთავარი გვერდი' : '← Back to Home'}
-          </Text>
-        </TouchableOpacity>
+           {selectedLanguage === 'georgian' ? '← უკან' : '← Back'}
+           </Text>
+           </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
   );
@@ -446,3 +482,4 @@ const styles = StyleSheet.create({
 });
 
 export default SubscriptionScreen;
+

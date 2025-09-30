@@ -193,6 +193,8 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
   // Subscription status
   const {
     data: subscriptionStatus,
+    isLoading: isSubLoading,
+    isFetching: isSubFetching,
     refetch: refetchUserStatus
   } = useQuery({
     queryKey: ['userStatus', currentUser?.id],
@@ -207,8 +209,15 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
     },
     enabled: !!currentUser?.id,
     staleTime: 60_000,
+    refetchOnMount: 'always',
+    refetchOnReconnect: true,
   })
-  const hasActiveSubscription = !!subscriptionStatus?.hasActiveSubscription
+  // Tri-state: true | false | undefined (unknown). Only block when strictly false.
+  const hasActiveSubscription = subscriptionStatus?.hasActiveSubscription
+
+  // Pending if user not ready, query fetching, or no result yet after enabling
+  const isSubUnknown = !!currentUser?.id && (typeof subscriptionStatus === 'undefined')
+  const subscriptionCheckPending = !currentUser?.id || isSubFetching || isSubUnknown
 
   // Ensure we have the freshest subscription status before gating actions
   const ensureSubscriptionFresh = React.useCallback(async () => {
@@ -231,6 +240,8 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
           const uid = session.user.id
           // Navigate immediately for fast startup
           setScreen('Main')
+          // Force fresh subscription status on cold start
+          try { await refetchUserStatus() } catch (_) {}
           // Background: fetch profile and sync location without blocking UI
           ;(async () => {
             try {
@@ -572,6 +583,8 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
         // Keep AuthService token in sync with Supabase session
         try { if (session?.access_token) { AuthService.token = session.access_token } } catch (_) {}
         refetchUser()
+        // Refresh subscription status on sign-in/token refresh
+        try { refetchUserStatus() } catch (_) {}
         try { autoSyncLocationAndCars(session?.user?.id, true) } catch (_) {}
       }
     })
@@ -1064,7 +1077,7 @@ useEffect(() => {
   }
 
   const goToAddCar = () => {
-    if (!hasActiveSubscription) {
+    if (hasActiveSubscription === false) {
       Alert.alert('Subscription', 'Feature available only with subscription')
       setScreen('Subscription')
       return
@@ -1250,6 +1263,9 @@ useEffect(() => {
           chatUnreadTotal={chatUnreadTotal}
           refreshUnreadTotal={refreshUnreadTotal}
           isPreview={true}
+          hasActiveSubscription={hasActiveSubscription}
+          isSubFetching={isSubFetching}
+          subscriptionCheckPending={subscriptionCheckPending}
           ensureSubscriptionFresh={ensureSubscriptionFresh}
         />
       ),
@@ -1351,6 +1367,8 @@ useEffect(() => {
                   user={currentUser}
                   profile={currentUser?.profile}
                   hasActiveSubscription={hasActiveSubscription}
+                  isSubFetching={isSubFetching}
+                  subscriptionCheckPending={subscriptionCheckPending}
                   ensureSubscriptionFresh={ensureSubscriptionFresh}
                   goToSubscription={goToSubscription}
                   navigation={{

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,StatusBar, Alert, Keyboard, Animated, LayoutAnimation, UIManager, Image, ActivityIndicator, Modal, Dimensions, TouchableWithoutFeedback } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform,StatusBar, Alert, Keyboard, Animated, LayoutAnimation, UIManager, ActivityIndicator, Modal, Dimensions, TouchableWithoutFeedback } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as chatService from '../services/chatService';
@@ -117,13 +118,13 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
     queryFn: async () => {
       let list = await chatService.listMessages(conversationId);
       
-      // Process images
+      // Process images with cached signed URLs
       list = await Promise.all((list || []).map(async (m) => {
         try {
           const parsed = m?.content ? JSON.parse(m.content) : null;
           if (parsed && parsed.type === 'image' && parsed.path) {
             try {
-              let url = await chatService.getSignedImageUrl(parsed.path);
+              let url = await chatService.getSignedImageUrlCached(parsed.path);
               if (!url) {
                 url = chatService.getPublicImageUrl(parsed.path);
               }
@@ -694,14 +695,17 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
                 }}
               >
                 <Image
-                  source={{ uri: item.localUri || imageMeta.url }}
+                  source={item.localUri || imageMeta.url}
                   style={[
                     styles.imageBubble,
                     (imageMeta?.width && imageMeta?.height)
                       ? { width: Math.min(220, screenWidth * 0.6), height: undefined, aspectRatio: imageMeta.width / imageMeta.height }
                       : { width: Math.min(220, screenWidth * 0.6), height: Math.min(220, screenWidth * 0.6) },
                   ]}
-                  resizeMode="cover"
+                  contentFit="cover"
+                  transition={150}
+                  placeholder={{ blurhash: 'LKO2?U%2Tw=^_3ofM{of~q%Mt7oL' }}
+                  cachePolicy="memory-disk"
                 />
                 {!!item.content && typeof item.content === 'string' && item.content.length > 0 && (
                   <Text style={[styles.msgText, mine ? styles.msgTextMine : styles.msgTextPeer]} numberOfLines={2}>

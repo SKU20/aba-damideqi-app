@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   View, 
@@ -76,7 +76,7 @@ function arraysShallowEqual(a, b) {
   return true;
 }
 
-const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navigation, route, onLogout, goToAddCar, goToCarProfile, goToAddEvent, goToEventScreen, goToUploadResult, goToProfile, goToChatInbox, onTabChange = () => {}, isPreview = false, hasActiveSubscription = false, goToSubscription, ensureSubscriptionFresh = () => {} }) => {
+const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navigation, route, onLogout, goToAddCar, goToCarProfile, goToAddEvent, goToEventScreen, goToUploadResult, goToProfile, goToChatInbox, onTabChange = () => {}, isPreview = false, hasActiveSubscription = false, goToSubscription, ensureSubscriptionFresh = () => {}, isSubFetching = false }) => {
   // Use global QueryClient from App provider
   const queryClient = useQueryClient();
   // Safe area insets for padding
@@ -1422,7 +1422,7 @@ try {
               ) : null}
             </View>
           </View>
-          {!hasActiveSubscription && (
+          {!isSubFetching && !hasActiveSubscription && (
       <View pointerEvents="auto" style={styles.lockOverlay}>
         <View style={styles.lockBox}>
           <Ionicons name="lock-closed" size={20} color="#fff" />
@@ -1563,25 +1563,25 @@ try {
   const handleAddNewCar = async () => {
     try {
       const freshAllowed = typeof ensureSubscriptionFresh === 'function'
-        ? await ensureSubscriptionFresh()
-        : hasActiveSubscription;
-      if (!freshAllowed) {
-        try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
-        if (typeof goToSubscription === 'function') {
-          goToSubscription();
-        }
-        return;
-      }
-    } catch (_) {
-      // Fallback to current prop
-      if (!hasActiveSubscription) {
-        try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
-        if (typeof goToSubscription === 'function') {
-          goToSubscription();
-        }
-        return;
-      }
+  ? await ensureSubscriptionFresh()
+  : (hasActiveSubscription !== false); // allow when unknown or true
+if (freshAllowed === false) {
+  try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
+  if (typeof goToSubscription === 'function') {
+    goToSubscription();
+  }
+  return;
+}
+} catch (_) {
+  // Fallback to current prop, but don't block while fetching
+  if (!isSubFetching && !hasActiveSubscription) {
+    try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
+    if (typeof goToSubscription === 'function') {
+      goToSubscription();
     }
+    return;
+  }
+}
     if (typeof goToAddCar === 'function') {
       goToAddCar();
     } else if (navigation && typeof navigation.navigate === 'function') {

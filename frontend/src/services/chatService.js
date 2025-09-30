@@ -185,6 +185,31 @@ export function getPublicImageUrl(path) {
   return data?.publicUrl || null
 }
 
+// Signed URL cache to reduce latency and duplicate requests
+const __signedUrlCache = new Map(); // key: path, value: { url, expiresAt }
+
+export async function getSignedImageUrlCached(path, ttlMs = 55 * 60 * 1000) {
+  if (!path) return null;
+  try {
+    const now = Date.now();
+    const cached = __signedUrlCache.get(path);
+    if (cached && cached.expiresAt > now && cached.url) {
+      return cached.url;
+    }
+
+    // Create a fresh signed URL
+    // Use slightly longer server expiration than client TTL to avoid edge expiry
+    const signed = await getSignedImageUrl(path, Math.ceil((ttlMs + 60_000) / 1000));
+    if (signed) {
+      __signedUrlCache.set(path, { url: signed, expiresAt: now + ttlMs });
+    }
+    return signed;
+  } catch (_) {
+    // Fallback to public URL if available
+    try { return getPublicImageUrl(path); } catch { return null; }
+  }
+}
+
 // Send an image message by storing JSON in the content field
 export async function sendImageMessage(conversationId, { path, width = null, height = null, mime = 'image/jpeg' }) {
   const myId = await getMyUserId()

@@ -382,10 +382,10 @@ const CarProfileScreen = ({
                 style={[
                   styles.raceButton,
                   { alignSelf: 'flex-start', marginTop: moderateScale(6) },
-                  !hasActiveSubscription && { backgroundColor: '#999' }
+                  (hasActiveSubscription === false) && { backgroundColor: '#999' }
                 ]}
                 onPress={() => {
-                  if (!hasActiveSubscription) {
+                  if (hasActiveSubscription === false) {
                     try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
                     if (typeof goToSubscription === 'function') {
                       goToSubscription();

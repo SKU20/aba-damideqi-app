@@ -206,8 +206,15 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       const isEmailVerified = session?.data?.user?.email_confirmed_at;
       
       if (!isEmailVerified) {
+        // Resend verification email
+        try {
+          await SupaAuth.resendOtp(loginData.email);
+        } catch (e) {
+          console.log('Failed to resend verification email:', e);
+        }
         setPendingEmail(loginData.email);
         setShowEmailVerification(true);
+        Alert.alert('', selectedLanguage === 'georgian' ? 'გთხოვთ დაადასტუროთ თქვენი ელ-ფოსტა. ახალი კოდი გამოგზავნილია.' : 'Please verify your email. A new code has been sent.');
         return;
       }
       

@@ -94,17 +94,19 @@ router.post('/register', [
         error: 'Username already taken'
       });
     }
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
+    // Use regular signUp to trigger email verification
+    const { data, error } = await supabaseClient.auth.signUp({
       email,
       password,
-      user_metadata: {
-        first_name: firstName,
-        last_name: lastName,
-        username,
-        phone,
-        age: Number.parseInt(age, 10) || null
-      },
-      email_confirm: false
+      options: {
+        data: {
+          first_name: firstName,
+          last_name: lastName,
+          username,
+          phone,
+          age: Number.parseInt(age, 10) || null
+        }
+      }
     });
 
     if (error) {

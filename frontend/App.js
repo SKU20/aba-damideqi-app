@@ -302,9 +302,32 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
     }
   }, [])
 
-  // Make app ready immediately to avoid startup delay
+  // Wake up backend on cold start and wait for it
   useEffect(() => {
-    setAppIsReady(true)
+    const wakeBackend = async () => {
+      try {
+        const apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com/api';
+        console.log('[Backend] Pinging health endpoint to wake up server...');
+        
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        
+        const response = await fetch(`${apiUrl}/health`, { 
+          method: 'GET',
+          signal: controller.signal 
+        });
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          console.log('[Backend] ✅ Server is awake and ready!');
+        }
+      } catch (e) {
+        console.warn('[Backend] ⚠️ Health check failed:', e.message);
+      } finally {
+        setAppIsReady(true);
+      }
+    };
+    wakeBackend();
   }, [])
 
   // TanStack Query for platform setup
@@ -551,7 +574,17 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
       try {
         if (nextAppState === 'active') {
           ch.track({ ping: Date.now() })
-          if (currentUser?.id) startHeartbeat(currentUser.id)
+          // Reconnect socket if disconnected (handles WiFi changes)
+          if (!socket.connected) {
+            socket.connect()
+          }
+          if (currentUser?.id) {
+            startHeartbeat(currentUser.id)
+            // Refetch subscription status when app becomes active
+            refetchUserStatus().catch(() => {})
+            // Refetch all queries to handle network changes
+            queryClient.refetchQueries({ type: 'active' }).catch(() => {})
+          }
         } else {
           ch.untrack()
           stopHeartbeat()
@@ -566,7 +599,7 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
     return () => {
       subscription?.remove()
     }
-  }, [currentUser?.id])
+  }, [currentUser?.id, refetchUserStatus, queryClient])
 
   // Setup auth state monitoring with useEffect
   useEffect(() => {

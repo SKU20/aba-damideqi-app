@@ -18,13 +18,15 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import AuthService from '../services/authService';
 import { authService as SupaAuth } from '../services/supabaseClient';
 import { StatusBar } from 'expo-status-bar';
+import TermsAndConditionsScreen from './TermsAndConditionsScreen';
 
 
 const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
   const queryClient = useQueryClient();
   
   const [isLogin, setIsLogin] = useState(true);
-  const [acceptedPolicy, setAcceptedPolicy] = useState(false);
+  const [showTerms, setShowTerms] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   
   // Login form state
   const [loginData, setLoginData] = useState({
@@ -312,8 +314,8 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       return;
     }
 
-    if (!acceptedPolicy) {
-      Alert.alert('Error', currentTexts.acceptPolicy);
+    if (!acceptedTerms) {
+      setShowTerms(true);
       return;
     }
 
@@ -332,16 +334,30 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
   // Determine if we're currently loading
   const isLoading = loginMutation.isPending || registerMutation.isPending;
 
+  if (showTerms) {
+    return (
+      <TermsAndConditionsScreen
+        selectedLanguage={selectedLanguage}
+        onAccept={() => {
+          setAcceptedTerms(true);
+          setShowTerms(false);
+          // Trigger registration after accepting terms
+          setTimeout(() => handleRegister(), 100);
+        }}
+        onBack={() => setShowTerms(false)}
+      />
+    );
+  }
+
   return (
-    <SafeAreaView style={styles.container}>
+    <ImageBackground
+      source={require('../../assets/logo.png')}
+      style={styles.backgroundImage}
+      resizeMode="cover"
+    >
       <StatusBar style="light" />
-      <ImageBackground
-        source={require('../../assets/logo.png')}
-        style={styles.backgroundImage}
-        resizeMode="center"
-      >
-        <View style={styles.overlay}>
-          {/* Back Button */}
+      <SafeAreaView style={styles.safeArea}>
+        <View style={styles.container}>
           <TouchableOpacity style={styles.backButton} onPress={goToHome}>
             <Text style={styles.backButtonText}>{currentTexts.back}</Text>
           </TouchableOpacity>
@@ -525,17 +541,6 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
   editable={!isLoading}
 />
                   
-                  {/* Privacy Policy Checkbox */}
-                  <TouchableOpacity 
-                    style={styles.checkboxContainer}
-                    onPress={() => setAcceptedPolicy(!acceptedPolicy)}
-                    disabled={isLoading}
-                  >
-                    <View style={[styles.checkbox, acceptedPolicy && styles.checkedBox]}>
-                      {acceptedPolicy && <Text style={styles.checkmark}>✓</Text>}
-                    </View>
-                    <Text style={styles.checkboxText}>{currentTexts.privacyPolicy}</Text>
-                  </TouchableOpacity>
                   
                   <TouchableOpacity 
                     style={[styles.submitButton, isLoading && styles.disabledButton]} 
@@ -557,8 +562,8 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
             </ScrollView>
           </KeyboardAvoidingView>
         </View>
-      </ImageBackground>
-    </SafeAreaView>
+      </SafeAreaView>
+    </ImageBackground>
   );
 };
 

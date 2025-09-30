@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, ScrollView, Platform, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, Image, ActivityIndicator, ScrollView, Platform, StatusBar, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import carService from '../services/carService';
 import { getUserLeaderboardRank, getLeaderboardRuns } from '../services/runService';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import ProfilePicture from '../components/ProfilePicture';
+import profilePictureService from '../services/profilePictureService';
 // Small helpers for consistent display
 const getBrandName = (car) => (car?.car_brands?.name || car?.moto_brands?.name || car?.custom_brand || '').toString();
 const getModelName = (car) => (car?.car_models?.name || car?.moto_models?.name || car?.custom_model || '').toString();
@@ -57,6 +59,7 @@ const ProfileScreen = ({ route, navigation, selectedLanguage = 'georgian', goToC
   const [entries100200, setEntries100200] = useState([]);
   const [entriesM0_60, setEntriesM0_60] = useState([]);
   const [entriesM60_124, setEntriesM60_124] = useState([]);
+  const [profilePictureUrl, setProfilePictureUrl] = useState(null);
 
   // UI state for compact display
   const [leaderboardVehicle, setLeaderboardVehicle] = useState('car'); // 'car' | 'motorcycle'
@@ -95,6 +98,10 @@ const ProfileScreen = ({ route, navigation, selectedLanguage = 'georgian', goToC
       if (!userId) { setError('No user provided'); setLoading(false); return; }
       setLoading(true);
       try {
+        // Fetch profile picture
+        const pictureUrl = await profilePictureService.getProfilePictureUrl(userId);
+        if (isMounted) setProfilePictureUrl(pictureUrl);
+
         const [userCars, r1, r2, board0100, board100200, boardM0_60, boardM60_124] = await Promise.all([
           // Use legacy helper which returns a plain array
           carService.getUserCarsLegacy(userId),
@@ -233,8 +240,13 @@ const ProfileScreen = ({ route, navigation, selectedLanguage = 'georgian', goToC
 
       {/* Profile summary */}
       <View style={styles.summary}>
-        <View style={styles.avatar}><Text style={styles.avatarText}>@</Text></View>
-        <View style={{ flex: 1 }}>
+        <ProfilePicture
+          uri={profilePictureUrl}
+          size={64}
+          showFullScreen={true}
+          iconName="person"
+        />
+        <View style={{ flex: 1, marginLeft: 16 }}>
           <Text style={styles.username}>@{username || 'user'}</Text>
           <View style={styles.rankRow}>
             <Ionicons name="trophy" size={16} color="#000" />

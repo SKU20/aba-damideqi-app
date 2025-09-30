@@ -145,14 +145,35 @@ class EventService {
     }
   }
 
-  // Get all public events
+  // Get all public events (no auth required)
   async getAllEvents() {
     try {
-      return await this.makeRequest('/events', {
-        method: 'GET'
+      const url = `${this.apiUrl}/events`;
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+      console.log('[API] 🚀 Request started: /events');
+      const startTime = Date.now();
+
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+      console.log(`[API] ✅ Response received: /events (${duration}ms)`);
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data;
     } catch (error) {
-      console.error('Error fetching all events:', error);
+      console.error('[API] ❌ Request failed: /events', error.message);
       throw error;
     }
   }

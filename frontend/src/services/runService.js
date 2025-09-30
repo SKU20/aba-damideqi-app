@@ -55,6 +55,7 @@ export async function getMyBestRun({ vehicleType = 'car', range = '0-100' } = {}
 export async function getLeaderboardRuns({ vehicleType = 'car', range = '0-100', limit = 50 } = {}) {
   const { speed_unit, range_start, range_end } = normalizeRange(vehicleType, range);
 
+  // First get the runs
   const { data, error } = await supabase
     .from('video_runs')
     .select('*')
@@ -66,7 +67,32 @@ export async function getLeaderboardRuns({ vehicleType = 'car', range = '0-100',
     .limit(limit);
 
   if (error) throw error;
-  return data || [];
+  
+  // Then fetch profile pictures for all users
+  const userIds = [...new Set((data || []).map(run => run.user_id).filter(Boolean))];
+  
+  let profilePictures = {};
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabase
+      .from('user_profiles')
+      .select('id, profile_picture_url')
+      .in('id', userIds);
+    
+    if (profiles) {
+      profilePictures = profiles.reduce((acc, p) => {
+        acc[p.id] = p.profile_picture_url;
+        return acc;
+      }, {});
+    }
+  }
+  
+  // Add profile pictures to runs
+  const runs = (data || []).map(run => ({
+    ...run,
+    user_profile_picture: profilePictures[run.user_id] || null
+  }));
+  
+  return runs;
 }
 
 export async function getLeaderboardBest({ vehicleType = 'car', range = '0-100' } = {}) {

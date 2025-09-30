@@ -28,21 +28,39 @@ class CarService {
       ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
     };
 
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
+    // Create abort controller with 60s timeout for cold starts
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60000);
 
-    // Attempt to parse JSON even on error for better messages
-    let data = null;
-    try { data = await response.json(); } catch (_) {}
+    console.log(`[API] 🚀 Request started: ${endpoint}`);
+    const startTime = Date.now();
 
-    if (!response.ok) {
-      const msg = (data && (data.error || data.message)) || `HTTP error! status: ${response.status}`;
-      throw new Error(msg);
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+      console.log(`[API] ✅ Response received: ${endpoint} (${duration}ms)`);
+
+      // Attempt to parse JSON even on error for better messages
+      let data = null;
+      try { data = await response.json(); } catch (_) {}
+
+      if (!response.ok) {
+        const msg = (data && (data.error || data.message)) || `HTTP error! status: ${response.status}`;
+        throw new Error(msg);
+      }
+
+      return data;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      const duration = Date.now() - startTime;
+      console.error(`[API] ❌ Request failed: ${endpoint} (${duration}ms)`, error.message);
+      throw error;
     }
-
-    return data;
   }
 
   // Get brands by vehicle type (car or motorcycle)

@@ -442,7 +442,8 @@ export async function listConversations() {
       otherUserId: conv.other_user_id,
       otherUser: conv.other_user_id ? {
         id: conv.other_user_id,
-        username: conv.other_username
+        username: conv.other_username,
+        profilePicture: conv.other_profile_picture
       } : null
     }))
   } catch (e) {

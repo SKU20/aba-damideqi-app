@@ -8,10 +8,11 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  SafeAreaView,
+
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 // Removed react-native-size-matters dependency - using manual scaling
 const moderateScale = (size) => size;
 import eventService from '../services/eventService';

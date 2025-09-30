@@ -4,6 +4,7 @@ import { Swipeable } from 'react-native-gesture-handler';
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 import * as chatService from '../services/chatService';
+import ProfilePicture from '../components/ProfilePicture';
 
 const { width } = Dimensions.get('window');
 
@@ -291,8 +292,13 @@ export default function ChatInboxScreen({ navigation, goBack, goToThread }) {
           style={[styles.row, hasUnread && styles.rowUnread]} 
           onPress={() => handleThreadPress(item)}
         >
-          <View style={styles.avatar}>
-            <Text style={styles.avatarTxt}>@</Text>
+          <View style={styles.avatarContainer}>
+            <ProfilePicture
+              uri={item.otherUser?.profilePicture}
+              size={50}
+              showFullScreen={false}
+              iconName="person"
+            />
             {hasUnread && <View style={styles.unreadDot} />}
             <View style={[
               styles.onlineStatusDot, 
@@ -465,20 +471,11 @@ const styles = StyleSheet.create({
   rowUnread: {
     backgroundColor: '#f8f9ff',
   },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#e8e8e8',
-    justifyContent: 'center',
-    alignItems: 'center',
+  avatarContainer: {
+    width: 50,
+    height: 50,
     marginRight: 12,
     position: 'relative',
-  },
-  avatarTxt: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#666',
   },
   unreadDot: {
     position: 'absolute',

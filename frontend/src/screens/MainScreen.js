@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { QueryClient, QueryClientProvider, useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { 
   View, 
@@ -38,6 +38,8 @@ import {
   updateAllUserCarsLocation,
   fetchUserProfilesByIds,
 } from '../services/profileService';
+import ProfilePicture from '../components/ProfilePicture';
+import profilePictureService from '../services/profilePictureService';
 
 // Use SafeAreaView from react-native-safe-area-context on all platforms
 
@@ -100,6 +102,18 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
   const [signedUrlMap, setSignedUrlMap] = useState({});
   // One-time guard to prevent infinite emergency refresh when backend is unreachable
   const emergencyAttemptedRef = useRef(false);
+  // Profile picture state
+  const [profilePictureUrl, setProfilePictureUrl] = useState(null);
+  const [uploadingProfilePicture, setUploadingProfilePicture] = useState(false);
+
+  // Load profile picture when profile tab is active
+  useEffect(() => {
+    if (activeTab === 'profile' && user?.id && !isPreview) {
+      profilePictureService.getProfilePictureUrl(user.id)
+        .then(url => setProfilePictureUrl(url))
+        .catch(err => console.warn('[MainScreen] Error loading profile picture:', err));
+    }
+  }, [activeTab, user?.id, isPreview]);
 
   // Chat: unread total derived from query; in-app toast handled globally in App.js
   const {
@@ -832,6 +846,62 @@ const allEvents = React.useMemo(() => {
     }
   };
 
+  // Handler for profile picture upload
+  const handleUploadProfilePicture = async () => {
+    if (!user?.id) return;
+    
+    try {
+      setUploadingProfilePicture(true);
+      
+      const imageAsset = await profilePictureService.pickImage();
+      if (!imageAsset) {
+        setUploadingProfilePicture(false);
+        return;
+      }
+      
+      const result = await profilePictureService.uploadProfilePicture(user.id, imageAsset);
+      
+      if (result?.url) {
+        setProfilePictureUrl(result.url);
+        Alert.alert('Success', 'Profile picture updated successfully!');
+      }
+    } catch (error) {
+      console.error('[MainScreen] Error uploading profile picture:', error);
+      Alert.alert('Error', error.message || 'Failed to upload profile picture');
+    } finally {
+      setUploadingProfilePicture(false);
+    }
+  };
+
+  // Handler for profile picture deletion
+  const handleDeleteProfilePicture = async () => {
+    if (!user?.id || !profilePictureUrl) return;
+    
+    Alert.alert(
+      'Delete Profile Picture',
+      'Are you sure you want to delete your profile picture?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              setUploadingProfilePicture(true);
+              await profilePictureService.deleteProfilePicture(user.id);
+              setProfilePictureUrl(null);
+              Alert.alert('Success', 'Profile picture deleted');
+            } catch (error) {
+              console.error('[MainScreen] Error deleting profile picture:', error);
+              Alert.alert('Error', 'Failed to delete profile picture');
+            } finally {
+              setUploadingProfilePicture(false);
+            }
+          }
+        }
+      ]
+    );
+  };
   React.useEffect(() => {
     // Prime queries cautiously: only refetch if caches look empty to avoid visual refresh
     if (user?.id && !isPreview) {
@@ -1453,20 +1523,28 @@ try {
       renderItem={({ item, index }) => (
         <View style={styles.runCard}>
           <View style={styles.runTopRow}>
-            {/* Left: rank + main info */}
+            {/* Left: profile picture with rank badge */}
             <View style={styles.runLeft}>
-              {(() => {
-                const i = index;
-                const bg = i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : i === 2 ? '#CD7F32' : '#000';
-                const color = i <= 2 ? '#000' : '#fff';
-                return (
-                  <View style={[styles.rankBadge, { backgroundColor: bg }]}> 
-                    {i <= 2 ? (<Ionicons name="trophy" size={14} color={color} />) : null}
-                    <Text style={{ color, fontWeight: '800', marginLeft: i <= 2 ? 4 : 0 }}>{index + 1}</Text>
-                  </View>
-                );
-              })()}
-              <View>
+              <View style={styles.profileWithRank}>
+                <ProfilePicture
+                  uri={item.user_profile_picture}
+                  size={50}
+                  showFullScreen={false}
+                  iconName="person"
+                />
+                {(() => {
+                  const i = index;
+                  const bg = i === 0 ? '#FFD700' : i === 1 ? '#C0C0C0' : i === 2 ? '#CD7F32' : '#000';
+                  const color = i <= 2 ? '#000' : '#fff';
+                  return (
+                    <View style={[styles.rankBadgeOverlay, { backgroundColor: bg }]}> 
+                      {i <= 2 ? (<Ionicons name="trophy" size={10} color={color} />) : null}
+                      <Text style={{ color, fontWeight: '800', fontSize: 10, marginLeft: i <= 2 ? 2 : 0 }}>{index + 1}</Text>
+                    </View>
+                  );
+                })()}
+              </View>
+              <View style={{ marginLeft: 12, flex: 1 }}>
                 <TouchableOpacity
                   onPress={() => {
                     const uid = item.user_id;
@@ -2198,12 +2276,41 @@ onPress={async () => {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      {/* Profile Header */}
+      {/* Profile Header with Picture */}
       <View style={styles.profileHeader}>
-        <Text style={styles.profileName}>
-          {profile?.first_name || user?.first_name || profile?.firstName || user?.firstName || 'User'}
-        </Text>
-        <Text style={styles.profileUsername}>@{profile?.username || user?.username || 'username'}</Text>
+        <ProfilePicture
+          uri={profilePictureUrl}
+          size={80}
+          showFullScreen={true}
+        />
+        <View style={styles.profileInfo}>
+          <Text style={styles.profileName}>
+            {profile?.first_name || user?.first_name || profile?.firstName || user?.firstName || 'User'}
+          </Text>
+          <Text style={styles.profileUsername}>@{profile?.username || user?.username || 'username'}</Text>
+          <View style={styles.profilePictureActions}>
+            <TouchableOpacity
+              style={[styles.uploadPictureButton, uploadingProfilePicture && styles.disabledButton]}
+              onPress={handleUploadProfilePicture}
+              disabled={uploadingProfilePicture}
+            >
+              <Ionicons name="camera" size={moderateScale(14)} color="#fff" />
+              <Text style={styles.uploadPictureButtonText}>
+                {uploadingProfilePicture ? 'Uploading...' : profilePictureUrl ? 'Change' : 'Upload'}
+              </Text>
+            </TouchableOpacity>
+            {profilePictureUrl && (
+              <TouchableOpacity
+                style={[styles.deletePictureButton, uploadingProfilePicture && styles.disabledButton]}
+                onPress={handleDeleteProfilePicture}
+                disabled={uploadingProfilePicture}
+              >
+                <Ionicons name="trash" size={moderateScale(14)} color="#fff" />
+                <Text style={styles.deletePictureButtonText}>Delete</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
       </View>
 
       {/* Personal Information */}
@@ -3236,6 +3343,27 @@ carActionText: {
     justifyContent: 'center',
   },
 
+  profileWithRank: {
+    position: 'relative',
+    width: 50,
+    height: 50,
+  },
+
+  rankBadgeOverlay: {
+    position: 'absolute',
+    bottom: -4,
+    right: -4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#fff',
+    minWidth: 24,
+    justifyContent: 'center',
+  },
+
   runUsername: {
     fontSize: 16,
     fontWeight: '700',
@@ -3346,17 +3474,23 @@ carActionText: {
     borderBottomColor: '#f0f0f0',
   },
 
+  profileInfo: {
+    alignItems: 'center',
+    marginTop: 12,
+  },
+
   profileName: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
     color: '#1a1a1a',
     marginBottom: 4,
   },
 
   profileUsername: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#666',
     fontWeight: '500',
+    marginBottom: 12,
   },
 
   // Profile Location Editor
@@ -3974,6 +4108,55 @@ unlockBtn: {
 unlockBtnText: {
   color: '#fff',
   fontWeight: '700',
+},
+profilePictureCard: {
+  backgroundColor: '#fff',
+  borderRadius: 12,
+  padding: 16,
+  marginBottom: 16,
+  marginHorizontal: 16,
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 4,
+  elevation: 3,
+},
+profilePictureContainer: {
+  alignItems: 'center',
+  marginTop: 12,
+},
+profilePictureActions: {
+  flexDirection: 'row',
+  marginTop: 0,
+  gap: 8,
+},
+uploadPictureButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: '#000',
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 6,
+  gap: 6,
+},
+uploadPictureButtonText: {
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: '600',
+},
+deletePictureButton: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  backgroundColor: '#dc3545',
+  paddingHorizontal: 12,
+  paddingVertical: 6,
+  borderRadius: 6,
+  gap: 6,
+},
+deletePictureButtonText: {
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: '600',
 },
 });
 

@@ -582,8 +582,6 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
             startHeartbeat(currentUser.id)
             // Refetch subscription status when app becomes active
             refetchUserStatus().catch(() => {})
-            // Refetch all queries to handle network changes
-            queryClient.refetchQueries({ type: 'active' }).catch(() => {})
           }
         } else {
           ch.untrack()

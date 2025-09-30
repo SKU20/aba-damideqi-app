@@ -90,7 +90,36 @@ export const authService = {
     } catch (error) {
       return { success: false, error: error.message }
     }
-  }
+  },
+
+  // Verify OTP code
+  verifyOtp: async (email, token) => {
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: 'email',
+      })
+      if (error) throw error
+      return { success: true, data }
+    } catch (error) {
+      return { success: false, error: error.message, error }
+    }
+  },
+
+  // Resend OTP code
+  resendOtp: async (email) => {
+    try {
+      const { data, error } = await supabase.auth.resend({
+        type: 'signup',
+        email,
+      })
+      if (error) throw error
+      return { success: true, data }
+    } catch (error) {
+      return { success: false, error: error.message, error }
+    }
+  },
 }
 
 

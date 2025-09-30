@@ -19,6 +19,7 @@ import AuthService from '../services/authService';
 import { authService as SupaAuth } from '../services/supabaseClient';
 import { StatusBar } from 'expo-status-bar';
 import TermsAndConditionsScreen from './TermsAndConditionsScreen';
+import EmailVerificationScreen from './EmailVerificationScreen';
 
 
 const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
@@ -27,6 +28,8 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [showTerms, setShowTerms] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [showEmailVerification, setShowEmailVerification] = useState(false);
+  const [pendingEmail, setPendingEmail] = useState('');
   
   // Login form state
   const [loginData, setLoginData] = useState({
@@ -57,7 +60,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       firstName: 'სახელი',
       lastName: 'გვარი',
       phone: 'ტელეფონის ნომერი',
-      age: 'ასაკი (17+)',
+      age: 'ასაკი (18+)',
       username: 'მეტსახელი',
       loginButton: 'შესვლა',
       registerButton: 'რეგისტრაცია',
@@ -65,7 +68,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       haveAccount: 'გაქვს ანგარიში?',
       privacyPolicy: 'ვეთანხმები კონფიდენციალურობის პოლიტიკას',
       back: 'უკან',
-      ageError: 'უნდა იყოს 17 წლის ან მეტი',
+      ageError: 'უნდა იყოს 18 წლის ან მეტი',
       passwordMismatch: 'პაროლები არ ემთხვევა',
       fillAllFields: 'გთხოვთ შეავსოთ ყველა ველი',
       acceptPolicy: 'გთხოვთ დაეთანხმოთ კონფიდენციალურობის პოლიტიკას',
@@ -83,7 +86,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       firstName: 'First Name',
       lastName: 'Last Name',
       phone: 'Phone Number',
-      age: 'Age (17+)',
+      age: 'Age (18+)',
       username: 'Username',
       loginButton: 'Login',
       registerButton: 'Register',
@@ -91,7 +94,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       haveAccount: 'Have an account?',
       privacyPolicy: 'I agree to Privacy Policy',
       back: 'Back',
-      ageError: 'Must be 17 or older',
+      ageError: 'Must be 18 or older',
       passwordMismatch: 'Passwords do not match',
       fillAllFields: 'Please fill all fields',
       acceptPolicy: 'Please accept the Privacy Policy',
@@ -182,7 +185,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
 
       return result;
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       // Clear login form
       setLoginData({ email: '', password: '' });
       
@@ -197,6 +200,16 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
           queryClient.refetchQueries({ queryKey: ['userStatus', userId] });
         }
       } catch (_) {}
+      
+      // Check if email is verified
+      const session = await SupaAuth.getCurrentUser();
+      const isEmailVerified = session?.data?.user?.email_confirmed_at;
+      
+      if (!isEmailVerified) {
+        setPendingEmail(loginData.email);
+        setShowEmailVerification(true);
+        return;
+      }
       
       if (result.data.hasActivePlan) {
         onAuthSuccess && onAuthSuccess(result.data.user, result.data.profile, true);
@@ -228,34 +241,9 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
       return result;
     },
     onSuccess: (result) => {
-      Alert.alert(
-        'Success', 
-        result.message || 'Registration successful!',
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              // Reset form and switch to login
-              setRegisterData({
-                firstName: '',
-                lastName: '',
-                email: '',
-                phone: '',
-                password: '',
-                confirmPassword: '',
-                age: '',
-                username: '',
-                referralCode: '',
-              });
-              setAcceptedPolicy(false);
-              setIsLogin(true);
-              
-              // Clear username availability cache
-              queryClient.removeQueries({ queryKey: ['usernameAvailability'] });
-            }
-          }
-        ]
-      );
+      // Show email verification screen
+      setPendingEmail(registerData.email);
+      setShowEmailVerification(true);
     },
     onError: (error) => {
       Alert.alert('Registration Failed', error.message || 'Registration failed. Please try again.');
@@ -309,7 +297,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
     }
 
     const ageNum = parseInt(age);
-    if (isNaN(ageNum) || ageNum < 17) {
+    if (isNaN(ageNum) || ageNum < 18) {
       Alert.alert('Error', currentTexts.ageError);
       return;
     }
@@ -334,6 +322,38 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
   // Determine if we're currently loading
   const isLoading = loginMutation.isPending || registerMutation.isPending;
 
+  if (showEmailVerification) {
+    return (
+      <EmailVerificationScreen
+        email={pendingEmail}
+        selectedLanguage={selectedLanguage}
+        onVerified={() => {
+          setShowEmailVerification(false);
+          setPendingEmail('');
+          // Reset form and go to login
+          setRegisterData({
+            firstName: '',
+            lastName: '',
+            email: '',
+            phone: '',
+            password: '',
+            confirmPassword: '',
+            age: '',
+            username: '',
+            referralCode: '',
+          });
+          setAcceptedTerms(false);
+          setIsLogin(true);
+          queryClient.removeQueries({ queryKey: ['usernameAvailability'] });
+        }}
+        onBack={() => {
+          setShowEmailVerification(false);
+          setPendingEmail('');
+        }}
+      />
+    );
+  }
+
   if (showTerms) {
     return (
       <TermsAndConditionsScreen
@@ -350,11 +370,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
   }
 
   return (
-    <ImageBackground
-      source={require('../../assets/logo.png')}
-      style={styles.backgroundImage}
-      resizeMode="cover"
-    >
+    <View style={styles.backgroundContainer}>
       <StatusBar style="light" />
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.container}>
@@ -563,19 +579,20 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
           </KeyboardAvoidingView>
         </View>
       </SafeAreaView>
-    </ImageBackground>
+    </View>
   );
 };
 
 const styles = StyleSheet.create({
+  backgroundContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  safeArea: {
+    flex: 1,
+  },
   container: {
     flex: 1,
-    backgroundColor: 'black',
-    },
-  backgroundImage: {
-    flex: 1,
-    width: '100%',
-    height: '100%',
   },
   overlay: {
     flex: 1,

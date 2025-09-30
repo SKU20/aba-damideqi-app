@@ -5,10 +5,10 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
   Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TermsAndConditionsScreen = ({ selectedLanguage = 'georgian', onAccept, onBack }) => {
   const [hasScrolledToEnd, setHasScrolledToEnd] = useState(false);

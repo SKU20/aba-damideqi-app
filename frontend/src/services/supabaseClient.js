@@ -24,6 +24,7 @@ export const authService = {
         email: email,
         password: password,
         options: {
+          emailRedirectTo: undefined,
           data: {
             first_name: userData.firstName,
             last_name: userData.lastName,

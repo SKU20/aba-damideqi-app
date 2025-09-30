@@ -67,7 +67,7 @@ router.post('/register', [
   body('lastName').trim().isLength({ min: 1, max: 50 }).withMessage('Last name is required'),
   body('username').trim().isLength({ min: 3, max: 30 }).matches(/^[a-zA-Z0-9_]+$/),
   body('phone').trim().isLength({ min: 1 }).withMessage('Phone number is required'),
-  body('age').isInt({ min: 17, max: 120 }).withMessage('Age must be between 17 and 120'),
+  body('age').isInt({ min: 18, max: 120 }).withMessage('Age must be between 18 and 120'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -104,7 +104,7 @@ router.post('/register', [
         phone,
         age: Number.parseInt(age, 10) || null
       },
-      email_confirm: true
+      email_confirm: false
     });
 
     if (error) {
@@ -200,6 +200,15 @@ router.post('/login', [
       return res.status(401).json({
         success: false,
         error: error.message
+      });
+    }
+
+    // Check if email is verified
+    if (!data.user.email_confirmed_at) {
+      return res.status(403).json({
+        success: false,
+        error: 'Please verify your email before logging in',
+        emailVerified: false
       });
     }
 

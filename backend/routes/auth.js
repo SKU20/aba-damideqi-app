@@ -4,6 +4,7 @@ const supabaseAdmin = require('../config/supabaseAdmin');
 const supabaseClient = require('../config/supabaseClient');
 const generateReferralCode = require('../utils/referralCodeGenerator');
 const { sendVerificationEmail } = require('../services/emailService');
+const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 

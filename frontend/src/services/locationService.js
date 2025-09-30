@@ -1,5 +1,6 @@
 // Location service for handling GPS and city detection
 import * as Location from 'expo-location';
+import { Linking, Platform } from 'react-native';
 import { findNearestCity, GEORGIAN_CITIES } from '../utils/georgianCities';
 
 class LocationService {
@@ -47,6 +48,45 @@ class LocationService {
       return true;
     } catch (error) {
       console.error('Error requesting location permissions:', error);
+      return false;
+    }
+  }
+
+  // Check current foreground permission without prompting
+  async hasForegroundPermission() {
+    try {
+      const { status, granted } = await Location.getForegroundPermissionsAsync();
+      return granted === true || status === 'granted';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Ensure permission on-demand; returns boolean (true if granted)
+  async ensureForegroundPermission() {
+    try {
+      const has = await this.hasForegroundPermission();
+      if (has) return true;
+      const ok = await this.requestPermissions();
+      return !!ok;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // Open system settings to let the user enable permissions
+  async openSystemSettings() {
+    try {
+      // Works for both iOS and Android in managed/bare
+      const canOpen = await Linking.canOpenURL('app-settings:');
+      if (canOpen) {
+        await Linking.openURL('app-settings:');
+        return true;
+      }
+      // Fallback
+      await Linking.openSettings?.();
+      return true;
+    } catch (_) {
       return false;
     }
   }

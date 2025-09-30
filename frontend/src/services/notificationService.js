@@ -20,6 +20,44 @@ class NotificationService {
     this.onRefreshUnreadTotal = null
   }
 
+  // Check notification permission without prompting
+  async hasNotificationPermission() {
+    try {
+      const { status, granted } = await Notifications.getPermissionsAsync()
+      return granted === true || status === 'granted'
+    } catch (_) {
+      return false
+    }
+  }
+
+  // Request permission on-demand; returns boolean (true if granted)
+  async ensureNotificationPermission() {
+    try {
+      const has = await this.hasNotificationPermission()
+      if (has) return true
+      const { status } = await Notifications.requestPermissionsAsync()
+      return status === 'granted'
+    } catch (_) {
+      return false
+    }
+  }
+
+  // Open app notification settings
+  async openNotificationSettings() {
+    try {
+      // For iOS 16+/Android this opens app settings
+      if (Notifications.requestPermissionsAsync.openSettings) {
+        await Notifications.requestPermissionsAsync.openSettings()
+        return true
+      }
+      // Fallback to generic API
+      await Notifications.openSettings?.()
+      return true
+    } catch (_) {
+      return false
+    }
+  }
+
   // Initialize notification service with callbacks
   initialize(callbacks) {
     this.onNewNotification = callbacks.onNewNotification

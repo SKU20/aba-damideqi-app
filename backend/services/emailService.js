@@ -1,34 +1,26 @@
-const SibApiV3Sdk = require('@getbrevo/brevo');
+const nodemailer = require('nodemailer');
 
-let apiInstance = new SibApiV3Sdk.TransactionalEmailsApi();
-
-// Set API key
-let apiKey = apiInstance.authentications['apiKey'];
-apiKey.apiKey = process.env.BREVO_API_KEY;
+// Create SMTP transporter (works with Gmail, SMTP2GO, or any SMTP service)
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || 'smtp.gmail.com',
+  port: process.env.SMTP_PORT || 587,
+  secure: false, // true for 465, false for other ports
+  auth: {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASSWORD
+  }
+});
 
 const sendVerificationEmail = async (email, code) => {
   try {
-    // Log for debugging
     console.log('Sending verification email to:', email);
     console.log('Verification code:', code);
-    console.log('API Key present:', !!process.env.BREVO_API_KEY);
 
-    const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-    
-    // Sender details - MUST be verified in Brevo dashboard
-    sendSmtpEmail.sender = { 
-      name: 'Car Test', 
-      email: 'cartests2025@gmail.com' 
-    };
-    
-    // Recipient
-    sendSmtpEmail.to = [{ email: email }];
-    
-    // Subject
-    sendSmtpEmail.subject = 'Verify Your Email - Car Test';
-    
-    // HTML content
-    sendSmtpEmail.htmlContent = `
+    const mailOptions = {
+      from: `"Car Test" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+      to: email,
+      subject: 'Verify Your Email - Car Test',
+      html: `
 <!DOCTYPE html>
 <html>
 <head>
@@ -71,55 +63,26 @@ const sendVerificationEmail = async (email, code) => {
     </table>
 </body>
 </html>
-    `;
+      `
+    };
 
-    // Send the email
-    const data = await apiInstance.sendTransacEmail(sendSmtpEmail);
+    const info = await transporter.sendMail(mailOptions);
     
     console.log('✅ Email sent successfully');
-    console.log('Message ID:', data.messageId);
+    console.log('Message ID:', info.messageId);
     
     return { 
       success: true, 
-      messageId: data.messageId,
-      data 
+      messageId: info.messageId
     };
     
   } catch (error) {
-    console.error('❌ Brevo email send error:', error);
-    
-    // Log detailed error information
-    if (error.response) {
-      console.error('Error status:', error.response.status);
-      console.error('Error body:', error.response.body);
-    }
-    
+    console.error('❌ Email send error:', error);
     return { 
       success: false, 
-      error: error.message,
-      details: error.response?.body 
+      error: error.message
     };
   }
 };
 
-// Test function to verify setup
-const testBrevoConnection = async () => {
-  try {
-    const accountApi = new SibApiV3Sdk.AccountApi();
-    const account = await accountApi.getAccount();
-    
-    console.log('✅ Brevo connection successful');
-    console.log('Account email:', account.email);
-    console.log('Plan:', account.plan);
-    
-    return { success: true, account };
-  } catch (error) {
-    console.error('❌ Brevo connection failed:', error.message);
-    return { success: false, error: error.message };
-  }
-};
-
-module.exports = { 
-  sendVerificationEmail,
-  testBrevoConnection 
-};
+module.exports = { sendVerificationEmail };

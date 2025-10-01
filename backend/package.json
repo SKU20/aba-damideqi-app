@@ -29,6 +29,7 @@
     "morgan": "^1.10.0",
     "multer": "^2.0.2",
     "node-tesseract-ocr": "^2.2.1",
+    "nodemailer": "^7.0.6",
     "pg": "^8.11.3",
     "pg-pool": "^3.6.1",
     "resend": "^6.1.1",

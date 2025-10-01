@@ -6,7 +6,7 @@ apiInstance.setApiKey(SibApiV3Sdk.TransactionalEmailsApiApiKeys.apiKey, process.
 const sendVerificationEmail = async (email, code) => {
   try {
     const sendSmtpEmail = new SibApiV3Sdk.SendSmtpEmail();
-    sendSmtpEmail.sender = { name: 'Car Test', email: 'cartest2025@gmail.com' };
+    sendSmtpEmail.sender = { name: 'Car Test', email: 'cartests2025@gmail.com' };
     sendSmtpEmail.to = [{ email: email }];
     sendSmtpEmail.subject = 'Verify Your Email - Car Test';
     sendSmtpEmail.htmlContent = `

@@ -1,24 +1,18 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-// Create SMTP transporter (works with Gmail, SMTP2GO, or any SMTP service)
-const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: process.env.SMTP_PORT || 587,
-  secure: false, // true for 465, false for other ports
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASSWORD
-  }
-});
+// Configure SendGrid
+if (process.env.SENDGRID_API_KEY) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 const sendVerificationEmail = async (email, code) => {
   try {
     console.log('Sending verification email to:', email);
     console.log('Verification code:', code);
 
-    const mailOptions = {
-      from: `"Car Test" <${process.env.SMTP_FROM || process.env.SMTP_USER}>`,
+    const msg = {
       to: email,
+      from: process.env.SENDGRID_FROM_EMAIL || 'noreply@cartest.app',
       subject: 'Verify Your Email - Car Test',
       html: `
 <!DOCTYPE html>
@@ -66,14 +60,12 @@ const sendVerificationEmail = async (email, code) => {
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    await sgMail.send(msg);
     
-    console.log('✅ Email sent successfully');
-    console.log('Message ID:', info.messageId);
+    console.log('✅ Email sent successfully via SendGrid');
     
     return { 
-      success: true, 
-      messageId: info.messageId
+      success: true
     };
     
   } catch (error) {

@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@getbrevo/brevo": "^3.0.1",
+    "@sendgrid/mail": "^8.1.6",
     "@supabase/supabase-js": "^2.57.4",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
@@ -29,7 +30,6 @@
     "morgan": "^1.10.0",
     "multer": "^2.0.2",
     "node-tesseract-ocr": "^2.2.1",
-    "nodemailer": "^7.0.6",
     "pg": "^8.11.3",
     "pg-pool": "^3.6.1",
     "resend": "^6.1.1",

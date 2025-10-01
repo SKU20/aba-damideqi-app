@@ -1,4 +1,4 @@
-const { supabaseAdmin } = require('../config/supabase');
+const supabaseAdmin = require('../config/supabaseAdmin');
 
 // Requires standard authMiddleware to have run first and set req.user
 module.exports = async function adminMiddleware(req, res, next) {

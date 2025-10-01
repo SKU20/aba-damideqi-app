@@ -1238,10 +1238,14 @@ useEffect(() => {
       try {
         const { data } = await supabase
           .from('user_profiles')
-          .select('id, username')
+          .select('id, username, profile_picture_url')
           .eq('id', userId)
           .maybeSingle()
-        otherUser = data || null
+        otherUser = data ? {
+          id: data.id,
+          username: data.username,
+          profilePicture: data.profile_picture_url
+        } : null
       } catch (e) {}
       
       console.log('[openChatWithUser] navigating to ChatThread')

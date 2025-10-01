@@ -366,8 +366,7 @@ const AuthScreen = ({ goToHome, selectedLanguage, onAuthSuccess }) => {
         onAccept={() => {
           setAcceptedTerms(true);
           setShowTerms(false);
-          // Trigger registration after accepting terms
-          setTimeout(() => handleRegister(), 100);
+          // Registration will be triggered when user clicks Register button again
         }}
         onBack={() => setShowTerms(false)}
       />

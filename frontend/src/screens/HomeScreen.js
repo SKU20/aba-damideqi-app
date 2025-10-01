@@ -30,12 +30,12 @@ const HomeScreen = ({ goToAuth, selectedLanguage, setSelectedLanguage }) => {
   const texts = {
     georgian: {
       selectLanguage: 'ენის არჩევა',
-      welcomeText: 'აბა დამიდექი!',
+      welcomeText: 'GearUp',
       authButton: 'ავტორიზაცია'
     },
     english: {
       selectLanguage: 'Select Language',
-      welcomeText: "Let's Race!",
+      welcomeText: "GearUp",
       authButton: 'Authorization'
     }
   };
@@ -134,7 +134,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoBackground: {
-    opacity: 0.9,
+    opacity: 1,
   },
   overlay: {
     flex: 1,
@@ -216,6 +216,7 @@ const styles = StyleSheet.create({
   welcomeText: {
     fontSize: isSmallDevice ? moderateScale(32) : moderateScale(38),
     fontWeight: 'bold',
+    fontStyle: 'italic',
     color: 'white',
     textAlign: 'center',
     letterSpacing: moderateScale(1.5),

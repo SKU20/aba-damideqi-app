@@ -427,25 +427,122 @@ export async function listConversations() {
   if (!myId) throw new Error('Not authenticated')
 
   try {
-    const { data, error } = await supabase.rpc('list_conversations_with_unread', {
-      p_user_id: myId
-    })
-    if (error) throw error
+    // Get conversations
+    const { data: conversations, error: convError } = await supabase
+      .from('conversations')
+      .select('id, is_group, created_at')
+      .order('created_at', { ascending: false })
 
-    return (data || []).map(conv => ({
-      id: conv.id,
-      is_group: conv.is_group,
-      created_at: conv.created_at,
-      last_message_at: conv.last_message_at,
-      last_message_text: conv.last_message_text,
-      unread_count: conv.unread_count || 0,
-      otherUserId: conv.other_user_id,
-      otherUser: conv.other_user_id ? {
-        id: conv.other_user_id,
-        username: conv.other_username,
-        profilePicture: conv.other_profile_picture
-      } : null
-    }))
+    if (convError) throw convError
+
+    console.log('[chatService] Raw conversations:', conversations)
+
+    // Get participants for each conversation
+    const convIds = (conversations || []).map(c => c.id)
+    const { data: participants, error: partError } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id, user_id')
+      .in('conversation_id', convIds)
+
+    if (partError) throw partError
+
+    console.log('[chatService] Participants:', participants)
+
+    // Build map of conversation -> other user ID
+    const convToOtherUser = {}
+    for (const p of (participants || [])) {
+      if (p.user_id !== myId) {
+        convToOtherUser[p.conversation_id] = p.user_id
+      }
+    }
+
+    console.log('[chatService] Conversation to other user map:', convToOtherUser)
+
+    // Get last message for each conversation
+    const { data: messages, error: msgError } = await supabase
+      .from('messages')
+      .select('conversation_id, content, created_at, sender_id')
+      .in('conversation_id', convIds)
+      .order('created_at', { ascending: false })
+
+    if (msgError) throw msgError
+
+    // Get last message per conversation
+    const lastMessages = {}
+    for (const msg of (messages || [])) {
+      if (!lastMessages[msg.conversation_id]) {
+        lastMessages[msg.conversation_id] = msg
+      }
+    }
+
+    // Get unread counts
+    const { data: unreadData, error: unreadError } = await supabase
+      .from('messages')
+      .select('conversation_id, id')
+      .in('conversation_id', convIds)
+      .eq('is_read', false)
+      .neq('sender_id', myId)
+
+    const unreadCounts = {}
+    for (const msg of (unreadData || [])) {
+      unreadCounts[msg.conversation_id] = (unreadCounts[msg.conversation_id] || 0) + 1
+    }
+
+    // Get all unique other user IDs
+    const otherUserIds = [...new Set(Object.values(convToOtherUser))]
+    
+    // Fetch user profiles
+    let userProfiles = {}
+    if (otherUserIds.length > 0) {
+      const { data: profiles } = await supabase
+        .from('user_profiles')
+        .select('id, username, profile_picture_url')
+        .in('id', otherUserIds)
+      
+      console.log('[chatService] Fetched user profiles:', profiles)
+      
+      if (profiles) {
+        userProfiles = profiles.reduce((acc, p) => {
+          acc[p.id] = {
+            username: p.username,
+            profilePicture: p.profile_picture_url
+          }
+          return acc
+        }, {})
+      }
+    }
+
+    // Build final result
+    const result = (conversations || [])
+      .filter(conv => convToOtherUser[conv.id]) // Only conversations with another user
+      .map(conv => {
+        const lastMsg = lastMessages[conv.id]
+        const otherUserId = convToOtherUser[conv.id]
+        const profile = userProfiles[otherUserId]
+
+        return {
+          id: conv.id,
+          is_group: conv.is_group,
+          created_at: conv.created_at,
+          last_message_at: lastMsg?.created_at || conv.created_at,
+          last_message_text: lastMsg?.content || '',
+          unread_count: unreadCounts[conv.id] || 0,
+          otherUserId: otherUserId,
+          otherUser: otherUserId ? {
+            id: otherUserId,
+            username: profile?.username || 'user',
+            profilePicture: profile?.profilePicture || null
+          } : null
+        }
+      })
+      .sort((a, b) => {
+        const ta = new Date(a.last_message_at).getTime()
+        const tb = new Date(b.last_message_at).getTime()
+        return tb - ta
+      })
+    
+    console.log('[chatService] listConversations result:', result)
+    return result
   } catch (e) {
     console.warn('[chatService] Error listing conversations:', e.message)
     return []
@@ -479,7 +576,7 @@ export async function getPeerProfile(userId) {
   if (!userId) return null
   const { data, error } = await supabase
     .from('user_profiles')
-    .select('id, last_seen_at, online_threshold_seconds, is_online')
+    .select('id, username, profile_picture_url, last_seen_at, online_threshold_seconds, is_online')
     .eq('id', userId)
     .maybeSingle()
   if (error) throw error

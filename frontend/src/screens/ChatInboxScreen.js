@@ -40,6 +40,7 @@ export default function ChatInboxScreen({ navigation, goBack, goToThread }) {
     refetchInterval: false, // Disable polling, rely on real-time updates
     // Always treat as stale on mount so navigating to Inbox fetches latest server state
     staleTime: 0,
+    cacheTime: 0, // Don't cache - always fetch fresh
     refetchOnMount: 'always',
     refetchOnReconnect: true,
     retry: (failureCount, error) => {

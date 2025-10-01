@@ -101,10 +101,25 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
     return acc;
   }, {});
 
-  const peer = otherUser || (() => {
+  // Peer Profile Query for online status AND username/picture
+  const { data: peerProfileData } = useQuery({
+    queryKey: QUERY_KEYS.peerProfile(otherUser?.id || userIds.find(uid => uid !== currentUserId)),
+    queryFn: () => chatService.getPeerProfile(otherUser?.id || userIds.find(uid => uid !== currentUserId)),
+    enabled: !!(otherUser?.id || userIds.find(uid => uid !== currentUserId)),
+    // Always fresh to keep online/away accurate in thread
+    staleTime: 0,
+    refetchOnMount: 'always',
+    refetchInterval: 15000, // Refetch every 15 seconds
+  });
+
+  const peer = otherUser || (peerProfileData ? {
+    id: peerProfileData.id,
+    username: peerProfileData.username,
+    profilePicture: peerProfileData.profile_picture_url
+  } : (() => {
     const otherId = userIds.find(uid => uid !== currentUserId);
     return otherId ? { id: otherId, username: userMap[otherId] } : null;
-  })();
+  })());
 
   const myProfile = currentUserId ? { id: currentUserId, username: userMap[currentUserId] } : null;
 
@@ -152,24 +167,6 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
     refetchOnWindowFocus: false,
     refetchOnReconnect: false,
     refetchOnMount: false,
-  });
-
-  // Peer Profile Query for online status
-  const { data: peerProfileData } = useQuery({
-    queryKey: QUERY_KEYS.peerProfile(peer?.id),
-    queryFn: () => chatService.getPeerProfile(peer?.id),
-    enabled: !!peer?.id,
-    // Always fresh to keep online/away accurate in thread
-    staleTime: 0,
-    refetchOnMount: 'always',
-    refetchOnReconnect: true,
-    cacheTime: 24 * 60 * 60 * 1000,
-    onSuccess: (data) => {
-      if (data) {
-        setPeerLastSeenAt(data.last_seen_at || null);
-        setPeerThresholdSec(data.online_threshold_seconds || 45);
-      }
-    },
   });
 
   // Conversation Exists Query

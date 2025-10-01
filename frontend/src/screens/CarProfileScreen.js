@@ -396,7 +396,7 @@ const CarProfileScreen = ({
                   console.log('[CarProfileScreen] Race button pressed. ownerId=', oid, 'has openChatWithUser=', typeof openChatWithUser === 'function');
                   if (oid && typeof openChatWithUser === 'function') {
                     const title = getDisplayName();
-                    const greeting = selectedLanguage === 'georgian' ? 'აბა დამიდექი!' : "Let's Race!";
+                    const greeting = selectedLanguage === 'georgian' ? 'აბა დამიდექი!' : "GearUp";
                     const details = title; // could extend with engine/hp if needed
                     const msg = `${greeting}\n${details}`;
                     openChatWithUser({ userId: oid, initialMessage: msg })
@@ -411,7 +411,7 @@ const CarProfileScreen = ({
                 }}
               >
                 <Ionicons name={hasActiveSubscription ? 'chatbubble-ellipses-outline' : 'lock-closed-outline'} size={moderateScale(14)} color="#fff" />
-                <Text style={styles.raceButtonText}>{selectedLanguage === 'georgian' ? 'აბა დამიდექი!' : "Let's Race!"}</Text>
+                <Text style={styles.raceButtonText}>{selectedLanguage === 'georgian' ? 'აბა დამიდექი!' : "GearUp"}</Text>
               </TouchableOpacity>
             )}
             <Text style={styles.vehicleType}>{getVehicleTypeDisplay()}</Text>
@@ -765,7 +765,8 @@ const styles = StyleSheet.create({
   raceButtonText: {
     color: '#ffffff',
     fontSize: moderateScale(13),
-    fontWeight: '700',
+    fontWeight: 'bold',
+    fontStyle: 'italic',
     marginLeft: moderateScale(6),
   },
 

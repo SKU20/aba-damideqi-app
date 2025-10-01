@@ -341,7 +341,7 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
 
   const texts = {
     georgian: {
-      headerTitle: 'აბა დამიდექი!', // უცვლელი
+      headerTitle: 'GearUp', // უცვლელი
       home: 'მთავარი',
       events: 'ღონისძიებები',
       profile: 'პროფილი',
@@ -419,7 +419,7 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
       video: 'ვიდეო',
     },
     english: {
-      headerTitle: "Let's Race!",
+      headerTitle: "GearUp",
       home: 'Home',
       events: 'Events',
       profile: 'Profile',
@@ -2690,7 +2690,8 @@ const styles = StyleSheet.create({
 
   headerTitle: {
     fontSize: moderateScale(20),
-    fontWeight: '700',
+    fontWeight: 'bold',
+    fontStyle: 'italic',
     color: '#1a1a1a',
     letterSpacing: 0.5,
   },

@@ -30,6 +30,8 @@ const EmailVerificationScreen = ({ email, onVerified, onBack, selectedLanguage =
       invalidCode: 'არასწორი კოდი',
       codeExpired: 'კოდი ვადაგასულია',
       success: 'ელ-ფოსტა დადასტურებულია!',
+      codeSent: 'კოდი გაგზავნილია! შეამოწმეთ სპამ ფოლდერიც.',
+      resendFailed: 'კოდის გაგზავნა ვერ მოხერხდა',
     },
     english: {
       title: 'Email Verification',
@@ -42,6 +44,8 @@ const EmailVerificationScreen = ({ email, onVerified, onBack, selectedLanguage =
       invalidCode: 'Invalid code',
       codeExpired: 'Code expired',
       success: 'Email verified successfully!',
+      codeSent: 'Code sent! Check your spam folder too.',
+      resendFailed: 'Failed to resend code',
     },
   };
 
@@ -92,16 +96,16 @@ const EmailVerificationScreen = ({ email, onVerified, onBack, selectedLanguage =
       const result = await AuthService.resendVerificationCode(email);
       
       if (!result.success) {
-        Alert.alert('', 'Failed to resend code');
+        Alert.alert('', t.resendFailed);
         setResending(false);
         return;
       }
 
       setCountdown(60);
-      Alert.alert('', 'Code sent!');
+      Alert.alert('', t.codeSent);
     } catch (error) {
       console.error('Resend error:', error);
-      Alert.alert('', 'Failed to resend code');
+      Alert.alert('', t.resendFailed);
     } finally {
       setResending(false);
     }

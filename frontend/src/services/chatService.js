@@ -1,11 +1,16 @@
 import { supabase } from './supabaseClient'
-
+import AuthService from './authService'
 export async function getMyUserId() {
-  const { data: { user }, error } = await supabase.auth.getUser()
-  if (error) throw error
-  return user?.id
+  try {
+    await AuthService.initialize()
+    const user = AuthService.getStoredUser()
+    if (!user?.id) throw new Error('Not authenticated')
+    return user.id
+  } catch (error) {
+    console.error('[chatService] getMyUserId error:', error)
+    throw error
+  }
 }
-
 // One-time presence snapshot helper (returns empty set; rely on subscription to fill live data)
 export async function getOnlinePresenceSet() {
   // Presence state requires an active channel; we do not persist a channel here
@@ -424,33 +429,53 @@ export async function deleteAllMessages(conversationId) {
 
 export async function listConversations() {
   const myId = await getMyUserId()
-  if (!myId) throw new Error('Not authenticated')
+  if (!myId) {
+    console.error('[chatService] No user ID available')
+    throw new Error('Not authenticated')
+  }
 
   try {
-    // Get conversations
+    // Get conversations with explicit user check
+    const { data: participants, error: partError } = await supabase
+      .from('conversation_participants')
+      .select('conversation_id')
+      .eq('user_id', myId)
+
+    if (partError) throw partError
+
+    const convIds = (participants || []).map(p => p.conversation_id)
+    
+    if (convIds.length === 0) {
+      console.log('[chatService] No conversations found for user')
+      return []
+    }
+
+    console.log('[chatService] Found conversation IDs:', convIds)
+
+    // Get conversation details
     const { data: conversations, error: convError } = await supabase
       .from('conversations')
       .select('id, is_group, created_at')
+      .in('id', convIds)
       .order('created_at', { ascending: false })
 
     if (convError) throw convError
 
     console.log('[chatService] Raw conversations:', conversations)
 
-    // Get participants for each conversation
-    const convIds = (conversations || []).map(c => c.id)
-    const { data: participants, error: partError } = await supabase
+    // Get ALL participants for these conversations
+    const { data: allParticipants, error: allPartError } = await supabase
       .from('conversation_participants')
       .select('conversation_id, user_id')
       .in('conversation_id', convIds)
 
-    if (partError) throw partError
+    if (allPartError) throw allPartError
 
-    console.log('[chatService] Participants:', participants)
+    console.log('[chatService] All participants:', allParticipants)
 
     // Build map of conversation -> other user ID
     const convToOtherUser = {}
-    for (const p of (participants || [])) {
+    for (const p of (allParticipants || [])) {
       if (p.user_id !== myId) {
         convToOtherUser[p.conversation_id] = p.user_id
       }
@@ -483,6 +508,8 @@ export async function listConversations() {
       .eq('is_read', false)
       .neq('sender_id', myId)
 
+    if (unreadError) throw unreadError
+
     const unreadCounts = {}
     for (const msg of (unreadData || [])) {
       unreadCounts[msg.conversation_id] = (unreadCounts[msg.conversation_id] || 0) + 1
@@ -491,13 +518,19 @@ export async function listConversations() {
     // Get all unique other user IDs
     const otherUserIds = [...new Set(Object.values(convToOtherUser))]
     
-    // Fetch user profiles
+    console.log('[chatService] Other user IDs to fetch:', otherUserIds)
+
+    // Fetch user profiles - FIX the field name consistency
     let userProfiles = {}
     if (otherUserIds.length > 0) {
-      const { data: profiles } = await supabase
+      const { data: profiles, error: profileError } = await supabase
         .from('user_profiles')
         .select('id, username, profile_picture_url')
         .in('id', otherUserIds)
+      
+      if (profileError) {
+        console.error('[chatService] Profile fetch error:', profileError)
+      }
       
       console.log('[chatService] Fetched user profiles:', profiles)
       
@@ -505,12 +538,14 @@ export async function listConversations() {
         userProfiles = profiles.reduce((acc, p) => {
           acc[p.id] = {
             username: p.username,
-            profilePicture: p.profile_picture_url
+            profilePicture: p.profile_picture_url // Use consistent field name
           }
           return acc
         }, {})
       }
     }
+
+    console.log('[chatService] Processed user profiles:', userProfiles)
 
     // Build final result
     const result = (conversations || [])
@@ -541,11 +576,11 @@ export async function listConversations() {
         return tb - ta
       })
     
-    console.log('[chatService] listConversations result:', result)
+    console.log('[chatService] listConversations final result:', result)
     return result
   } catch (e) {
-    console.warn('[chatService] Error listing conversations:', e.message)
-    return []
+    console.error('[chatService] Error listing conversations:', e.message, e)
+    throw e // Re-throw to let the calling code handle it
   }
 }
 

@@ -259,27 +259,22 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
   const t = texts[selectedLanguage] || texts.english;
 
   const requestCameraPermission = async () => {
-    if (Platform.OS === 'android') {
-      try {
-        const granted = await PermissionsAndroid.requestMultiple([
-          PermissionsAndroid.PERMISSIONS.CAMERA,
-          PermissionsAndroid.PERMISSIONS.READ_EXTERNAL_STORAGE,
-          PermissionsAndroid.PERMISSIONS.WRITE_EXTERNAL_STORAGE,
-        ]);
-
-        return (
-          granted['android.permission.CAMERA'] === PermissionsAndroid.RESULTS.GRANTED &&
-          granted['android.permission.READ_EXTERNAL_STORAGE'] === PermissionsAndroid.RESULTS.GRANTED &&
-          granted['android.permission.WRITE_EXTERNAL_STORAGE'] === PermissionsAndroid.RESULTS.GRANTED
-        );
-      } catch (err) {
-        console.warn(err);
-        return false;
-      }
-    } else {
+    try {
+      // For Expo, we should use ImagePicker permissions for both platforms
       const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
       const { status: libraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      return cameraStatus === 'granted' && libraryStatus === 'granted';
+      
+      console.log('[AddCarScreen] Permission status:', { cameraStatus, libraryStatus });
+      
+      if (cameraStatus !== 'granted' || libraryStatus !== 'granted') {
+        console.log('[AddCarScreen] Permissions not granted');
+        return false;
+      }
+      
+      return true;
+    } catch (err) {
+      console.error('[AddCarScreen] Permission request error:', err);
+      return false;
     }
   };
 
@@ -555,7 +550,14 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
   const showImagePicker = async () => {
     const hasPermission = await requestCameraPermission();
     if (!hasPermission) {
-      Alert.alert(t.error, 'Camera and storage permissions are required to add photos.');
+      Alert.alert(
+        t.error, 
+        'Camera and storage permissions are required to add photos. Please grant permissions in your device settings.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Try Again', onPress: showImagePicker }
+        ]
+      );
       return;
     }
 

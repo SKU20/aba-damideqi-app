@@ -23,9 +23,7 @@ const upload = multer({
 });
 
 const getPublicUrl = async (fileName) => {
-  if (!fileName) {
-    return null;
-  }
+  if (!fileName) return null;
   
   let actualFileName = fileName;
   
@@ -35,29 +33,30 @@ const getPublicUrl = async (fileName) => {
     if (match) {
       actualFileName = match[1];
     } else {
-      return null;
+      return fileName; // Return original if can't parse
     }
   }
   
   try {
-    // Prefer signed URL to work with private buckets reliably
-    const { data, error } = await supabaseAdmin.storage
-      .from('car-photos')
-      .createSignedUrl(actualFileName, 31536000); // 1 year expiry
-
-    if (!error && data?.signedUrl) {
-      return data.signedUrl;
-    }
-
-    // If signed URL failed for any reason, try public URL (in case bucket is public)
+    // Use public URL first (faster, less memory)
     const { data: publicData } = supabaseAdmin.storage
       .from('car-photos')
       .getPublicUrl(actualFileName);
-    return publicData?.publicUrl || null;
+    
+    if (publicData?.publicUrl) {
+      return publicData.publicUrl;
+    }
+
+    // Fallback to signed URL only if needed
+    const { data, error } = await supabaseAdmin.storage
+      .from('car-photos')
+      .createSignedUrl(actualFileName, 3600); // 1 hour expiry (shorter)
+
+    return (!error && data?.signedUrl) ? data.signedUrl : fileName;
 
   } catch (err) {
-    console.error('getPublicUrl failed for', actualFileName, err?.message);
-    return null;
+    console.warn('getPublicUrl failed for', actualFileName, err?.message);
+    return fileName; // Return original as fallback
   }
 };
 
@@ -305,15 +304,26 @@ router.get('/user/:userId', async (req, res) => {
 
     if (error) throw error;
 
-    // Process photos with proper async/await
+    // Process photos with proper async/await and error handling
     const processedData = await Promise.all(
       (data || []).map(async (car) => {
-        // Process photos with proper async/await
+        // Process photos with error handling to prevent 503 errors
         const processedPhotos = await Promise.all(
-          (car.car_photos || []).map(async (photo) => ({
-            ...photo,
-            photo_url: await getPublicUrl(photo.photo_url)
-          }))
+          (car.car_photos || []).map(async (photo) => {
+            try {
+              const processedUrl = await getPublicUrl(photo.photo_url);
+              return {
+                ...photo,
+                photo_url: processedUrl || photo.photo_url
+              };
+            } catch (err) {
+              console.warn(`Photo URL processing failed for photo ${photo.id}:`, err.message);
+              return {
+                ...photo,
+                photo_url: photo.photo_url
+              };
+            }
+          })
         );
 
         // Sort photos by upload_order

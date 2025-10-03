@@ -6,6 +6,7 @@ import { getUserLeaderboardRank, getLeaderboardRuns } from '../services/runServi
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePicture from '../components/ProfilePicture';
 import profilePictureService from '../services/profilePictureService';
+import authService from '../services/authService';
 // Small helpers for consistent display
 const getBrandName = (car) => (car?.car_brands?.name || car?.moto_brands?.name || car?.custom_brand || '').toString();
 const getModelName = (car) => (car?.car_models?.name || car?.moto_models?.name || car?.custom_model || '').toString();
@@ -49,10 +50,11 @@ const getCarImage = (car) => {
 };
 
 const ProfileScreen = ({ route, navigation, selectedLanguage = 'georgian', goToCarProfile, onBack }) => {
-  const { userId, username } = route?.params || {};
+  const { userId, username: routeUsername } = route?.params || {};
   const [loading, setLoading] = useState(true);
   const [cars, setCars] = useState([]);
   const [rankCar0100, setRankCar0100] = useState(null);
+  const [username, setUsername] = useState(routeUsername || null);
   const [rankCar100200, setRankCar100200] = useState(null);
   const [error, setError] = useState(null);
   const [entries0100, setEntries0100] = useState([]); // [{ run, rank }]
@@ -101,6 +103,20 @@ const ProfileScreen = ({ route, navigation, selectedLanguage = 'georgian', goToC
         // Fetch profile picture
         const pictureUrl = await profilePictureService.getProfilePictureUrl(userId);
         if (isMounted) setProfilePictureUrl(pictureUrl);
+
+        // Fetch username from AuthService if not provided via route
+        if (!username) {
+          try {
+            await authService.initialize();
+            const authUsername = authService.user?.user_metadata?.username || authService.user?.username || null;
+            console.log('[ProfileScreen] 👤 Username from AuthService:', authUsername);
+            if (isMounted && authUsername) {
+              setUsername(authUsername);
+            }
+          } catch (authError) {
+            console.warn('[ProfileScreen] Failed to get username from AuthService:', authError);
+          }
+        }
 
         const [userCars, r1, r2, board0100, board100200, boardM0_60, boardM60_124] = await Promise.all([
           // Use legacy helper which returns a plain array

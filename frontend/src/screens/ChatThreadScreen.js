@@ -76,6 +76,9 @@ export default function ChatThreadScreen({ conversationId, otherUser, navigation
     staleTime: Infinity, // User ID never changes
     cacheTime: Infinity,
     onSuccess: (id) => setMyId(id),
+    onError: (error) => {
+      console.log('[ChatThreadScreen] User not authenticated, skipping chat features');
+    },
   });
 
   // Conversation Participants Query

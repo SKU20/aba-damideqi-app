@@ -492,4 +492,65 @@ router.post('/resend-verification', [
   }
 });
 
+// Refresh token endpoint
+router.post('/refresh', async (req, res) => {
+  try {
+    const { refresh_token } = req.body;
+
+    if (!refresh_token) {
+      return res.status(400).json({
+        success: false,
+        error: 'Refresh token is required'
+      });
+    }
+
+    // Use Supabase to refresh the session
+    const { data, error } = await supabaseAdmin.auth.refreshSession({
+      refresh_token: refresh_token
+    });
+
+    if (error) {
+      console.error('Token refresh error:', error);
+      return res.status(401).json({
+        success: false,
+        error: 'Invalid refresh token'
+      });
+    }
+
+    if (!data.session || !data.user) {
+      return res.status(401).json({
+        success: false,
+        error: 'Failed to refresh session'
+      });
+    }
+
+    // Get user profile
+    const { data: profile, error: profileError } = await supabaseAdmin
+      .from('user_profiles')
+      .select('*')
+      .eq('id', data.user.id)
+      .single();
+
+    if (profileError) {
+      console.warn('Profile fetch error during refresh:', profileError);
+    }
+
+    res.json({
+      success: true,
+      data: {
+        session: data.session,
+        user: data.user,
+        profile: profile || null
+      }
+    });
+
+  } catch (error) {
+    console.error('Refresh endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error'
+    });
+  }
+});
+
 module.exports = router;

@@ -20,7 +20,7 @@
     const fromApi = process.env.EXPO_PUBLIC_API_BASE
     if (fromApi) return fromApi
 
-    return 'http://localhost:3000'
+    return 'https://aba-damideqi-app.onrender.com'
   }
 
   const baseUrl = deriveBaseUrl()

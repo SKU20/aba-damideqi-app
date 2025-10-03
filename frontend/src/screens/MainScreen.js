@@ -78,7 +78,7 @@ function arraysShallowEqual(a, b) {
   return true;
 }
 
-const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navigation, route, onLogout, goToAddCar, goToCarProfile, goToAddEvent, goToEventScreen, goToUploadResult, goToProfile, goToChatInbox, onTabChange = () => {}, isPreview = false, hasActiveSubscription = false, goToSubscription, ensureSubscriptionFresh = () => {}, isSubFetching = false }) => {
+const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navigation, route, onLogout, goToAddCar, goToCarProfile, goToAddEvent, goToEventScreen, goToUploadResult, goToProfile, goToChatInbox, onTabChange = () => {}, isPreview = false, hasActiveSubscription = false, subscriptionStatusLoaded = false, goToSubscription, ensureSubscriptionFresh = () => {}, isSubFetching = false }) => {
   // Use global QueryClient from App provider
   const queryClient = useQueryClient();
   // Safe area insets for padding
@@ -232,6 +232,16 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
     try { if (typeof ensureSubscriptionFresh === 'function') ensureSubscriptionFresh(); } catch (_) {}
   }, [ensureSubscriptionFresh]);
 
+  // Debug subscription status changes
+  useEffect(() => {
+    console.log('[MainScreen] Subscription status changed:', {
+      hasActiveSubscription,
+      subscriptionStatusLoaded,
+      isSubFetching,
+      user: user?.id
+    });
+  }, [hasActiveSubscription, subscriptionStatusLoaded, isSubFetching, user?.id]);
+
   // Removed refreshUnreadTotal function to prevent loops
 
   // Load last active tab on mount; also honor navigation param initialTab if provided
@@ -303,6 +313,7 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
               });
             } catch (e2) {}
             locationSyncedRef.current = true;
+            setIsGettingLocation(false);
           }
         } else {
           
@@ -944,41 +955,6 @@ const allEvents = React.useMemo(() => {
     }
   }, [effectiveAllCarsData, effectiveUserCarsData, activeTab, userCarsLoading, allCarsLoading]);
 
-  // Add a more aggressive refetch when returning to home tab
-  useEffect(() => {
-    if (activeTab === 'home' && user?.id && isMountedRef.current) {
-      console.log('Home tab activated, ensuring data is loaded...');
-      console.log('Current data state:', {
-        userCarsData: userCarsData?.length || 0,
-        allCarsData: allCarsData?.length || 0,
-        effectiveUserCarsData: effectiveUserCarsData?.length || 0,
-        effectiveAllCarsData: effectiveAllCarsData?.length || 0,
-        fallbackUserCars: fallbackData.userCars?.length || 0,
-        fallbackAllCars: fallbackData.allCars?.length || 0
-      });
-      
-      // Check if we have data, if not, refetch immediately
-      if ((!effectiveAllCarsData || effectiveAllCarsData.length === 0) && (!effectiveUserCarsData || effectiveUserCarsData.length === 0)) {
-        console.log('No data found, refetching immediately...');
-        const timeoutId = setTimeout(() => {
-          if (isMountedRef.current) {
-            // Just refetch without invalidating cache to preserve existing data
-            Promise.all([
-              refetchUserCars(),
-              refetchAllCars(),
-              refetchEvents(),
-              refetchUnread()
-            ]).catch(error => {
-              console.warn('Error refetching data on home activation:', error);
-            });
-          }
-        }, 100);
-        
-        return () => clearTimeout(timeoutId);
-      }
-    }
-  }, [activeTab, user?.id, effectiveAllCarsData, effectiveUserCarsData, refetchUserCars, refetchAllCars, refetchEvents, refetchUnread, queryClient]);
-
   // Refetch data when activeTab changes to home to prevent blank screen (rate-limited)
   useEffect(() => {
     if (activeTab === 'home' && user?.id && isMountedRef.current) {
@@ -1234,17 +1210,8 @@ try {
     }
   };
 
-  React.useEffect(() => {
-    if (activeTab === 'home') {
-      refetchAllCars();
-      refetchUserCars();
-    } else if (activeTab === 'events') {
-      refetchEvents();
-    } else if (activeTab === 'profile') {
-      refetchUserCars();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, user?.id]);
+  // REMOVED: Another duplicate useEffect causing double fetching
+  // Tab-specific data fetching is handled by the rate-limited useEffect above
 
   // Apply location and vehicle-type filtering when toggles/cars change
   // Removed redundant auto-filter effect; filtering handled in process effect and explicit actions
@@ -1466,7 +1433,29 @@ try {
               </Text>
               <TouchableOpacity
                 style={styles.dashUploadBtn}
-                onPress={() => {
+                onPress={async () => {
+                  console.log('[MainScreen] Upload button pressed - checking subscription immediately');
+                  
+                  try {
+                    // Immediately check subscription status when button is pressed
+                    const freshAllowed = typeof ensureSubscriptionFresh === 'function'
+                      ? await ensureSubscriptionFresh()
+                      : (hasActiveSubscription !== false);
+                    
+                    console.log('[MainScreen] Upload subscription check result:', freshAllowed);
+                    
+                    if (freshAllowed === false) {
+                      try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
+                      if (typeof goToSubscription === 'function') {
+                        goToSubscription();
+                      }
+                      return;
+                    }
+                  } catch (error) {
+                    console.error('[MainScreen] Upload subscription check error:', error);
+                    // On error, allow action to proceed
+                  }
+                  
                   if (typeof goToUploadResult === 'function') {
                     goToUploadResult({ vehicleType: dashboardVehicle, range: dashboardRange, allowSwitcher: false, returnTab: 'dashboard' });
                   } else if (navigation && typeof navigation.navigate === 'function') {
@@ -1492,7 +1481,17 @@ try {
               ) : null}
             </View>
           </View>
-          {!isSubFetching && !hasActiveSubscription && (
+          {(() => {
+            // Only show overlay if we're certain user has no subscription
+            const shouldShow = subscriptionStatusLoaded && !isSubFetching && hasActiveSubscription === false;
+            console.log('[MainScreen] Dashboard overlay check:', {
+              isSubFetching,
+              hasActiveSubscription,
+              subscriptionStatusLoaded,
+              shouldShowOverlay: shouldShow
+            });
+            return shouldShow;
+          })() && (
       <View pointerEvents="auto" style={styles.lockOverlay}>
         <View style={styles.lockBox}>
           <Ionicons name="lock-closed" size={20} color="#fff" />
@@ -1639,27 +1638,29 @@ try {
   };
 
   const handleAddNewCar = async () => {
+    console.log('[MainScreen] Add Car button pressed - checking subscription immediately');
+    
     try {
+      // Immediately check subscription status when button is pressed
       const freshAllowed = typeof ensureSubscriptionFresh === 'function'
-  ? await ensureSubscriptionFresh()
-  : (hasActiveSubscription !== false); // allow when unknown or true
-if (freshAllowed === false) {
-  try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
-  if (typeof goToSubscription === 'function') {
-    goToSubscription();
-  }
-  return;
-}
-} catch (_) {
-  // Fallback to current prop, but don't block while fetching
-  if (!isSubFetching && !hasActiveSubscription) {
-    try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
-    if (typeof goToSubscription === 'function') {
-      goToSubscription();
+        ? await ensureSubscriptionFresh()
+        : (hasActiveSubscription !== false); // allow when unknown or true
+      
+      console.log('[MainScreen] Fresh subscription check result:', freshAllowed);
+      
+      if (freshAllowed === false) {
+        try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
+        if (typeof goToSubscription === 'function') {
+          goToSubscription();
+        }
+        return;
+      }
+    } catch (error) {
+      console.error('[MainScreen] Subscription check error:', error);
+      // On error, allow action to proceed (fail-open approach)
+      console.log('[MainScreen] Subscription check failed, allowing action to proceed');
     }
-    return;
-  }
-}
+    
     if (typeof goToAddCar === 'function') {
       goToAddCar();
     } else if (navigation && typeof navigation.navigate === 'function') {

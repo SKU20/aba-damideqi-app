@@ -38,21 +38,18 @@ const getPublicUrl = async (fileName) => {
   }
   
   try {
-    // Use public URL first (faster, less memory)
-    const { data: publicData } = supabaseAdmin.storage
-      .from('car-photos')
-      .getPublicUrl(actualFileName);
-    
-    if (publicData?.publicUrl) {
-      return publicData.publicUrl;
-    }
-
-    // Fallback to signed URL only if needed
+    // Always use signed URLs for private buckets (more reliable)
     const { data, error } = await supabaseAdmin.storage
       .from('car-photos')
-      .createSignedUrl(actualFileName, 3600); // 1 hour expiry (shorter)
+      .createSignedUrl(actualFileName, 7200); // 2 hour expiry
 
-    return (!error && data?.signedUrl) ? data.signedUrl : fileName;
+    if (!error && data?.signedUrl) {
+      console.log('✅ Generated signed URL for:', actualFileName);
+      return data.signedUrl;
+    }
+
+    console.warn('❌ getPublicUrl failed for', actualFileName, error?.message);
+    return fileName; // Return original as fallback
 
   } catch (err) {
     console.warn('getPublicUrl failed for', actualFileName, err?.message);
@@ -705,7 +702,7 @@ router.get('/:carId', async (req, res) => {
 });
 
 // Upload car photos
-router.post('/photos/upload', upload.array('photos', 10), async (req, res) => {
+router.post('/photos/upload', authMiddleware, upload.array('photos', 10), async (req, res) => {
   try {
     const { carId, userId } = req.body;
     const files = req.files;

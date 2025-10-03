@@ -33,6 +33,7 @@ const CarProfileScreen = ({
   goToProfile,
   openChatWithUser,
   hasActiveSubscription = false,
+  subscriptionStatusLoaded = false,
   goToSubscription,
 }) => {
 
@@ -382,15 +383,23 @@ const CarProfileScreen = ({
                 style={[
                   styles.raceButton,
                   { alignSelf: 'flex-start', marginTop: moderateScale(6) },
-                  (hasActiveSubscription === false) && { backgroundColor: '#999' }
+                  (subscriptionStatusLoaded && hasActiveSubscription === false) && { backgroundColor: '#999' }
                 ]}
-                onPress={() => {
-                  if (hasActiveSubscription === false) {
+                onPress={async () => {
+                  console.log('[CarProfileScreen] Chat button pressed - checking subscription immediately');
+                  
+                  // For CarProfileScreen, we don't have ensureSubscriptionFresh, so check current status
+                  if (subscriptionStatusLoaded && hasActiveSubscription === false) {
                     try { Alert.alert('Subscription', 'Feature available only with subscription'); } catch (_) {}
                     if (typeof goToSubscription === 'function') {
                       goToSubscription();
                     }
                     return;
+                  }
+                  
+                  // If status not loaded yet, proceed optimistically (fail-open approach)
+                  if (!subscriptionStatusLoaded) {
+                    console.log('[CarProfileScreen] Subscription status not loaded yet, proceeding optimistically');
                   }
                   const oid = getOwnerId();
                   console.log('[CarProfileScreen] Race button pressed. ownerId=', oid, 'has openChatWithUser=', typeof openChatWithUser === 'function');
@@ -410,7 +419,7 @@ const CarProfileScreen = ({
                   }
                 }}
               >
-                <Ionicons name={hasActiveSubscription ? 'chatbubble-ellipses-outline' : 'lock-closed-outline'} size={moderateScale(14)} color="#fff" />
+                <Ionicons name={(subscriptionStatusLoaded && hasActiveSubscription) ? 'chatbubble-ellipses-outline' : 'lock-closed-outline'} size={moderateScale(14)} color="#fff" />
                 <Text style={styles.raceButtonText}>{selectedLanguage === 'georgian' ? 'აბა დამიდექი!' : "GearUp"}</Text>
               </TouchableOpacity>
             )}

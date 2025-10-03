@@ -4,11 +4,16 @@ export async function getMyUserId() {
   try {
     await AuthService.initialize()
     const user = AuthService.getStoredUser()
-    if (!user?.id) throw new Error('Not authenticated')
+    console.log('[chatService] AuthService user:', user?.id ? 'Found' : 'Not found', user?.id)
+    if (!user?.id) {
+      // Return null instead of throwing error for unauthenticated users
+      console.log('[chatService] User not authenticated, returning null')
+      return null
+    }
     return user.id
   } catch (error) {
-    console.error('[chatService] getMyUserId error:', error)
-    throw error
+    console.warn('[chatService] getMyUserId error:', error.message)
+    return null
   }
 }
 // One-time presence snapshot helper (returns empty set; rely on subscription to fill live data)

@@ -36,6 +36,7 @@ import { AppState } from 'react-native'
 import { upsertUserProfile, updateAllUserCarsLocation } from './src/services/profileService'
 import userStatusService from './src/services/userStatusService'
 import locationService from './src/services/locationService'
+import subscriptionStatusManager from './src/services/subscriptionStatusManager'
 
 // Configure global notification handler: suppress OS banner while app is in foreground
 Notifications.setNotificationHandler({
@@ -125,22 +126,94 @@ function AppContent() {
 
   // Refs for cleanup
   const presenceChannelRef = useRef(null)
-  const appState = useRef(AppState.currentState)
   const heartbeatRef = useRef(null)
   const notificationSubscriptions = useRef(null)
   const processedInitialNotificationRef = useRef(false)
   const toastTimerRef = useRef(null)
   const notifTimerRef2 = useRef(null)
   const notifAnim = useRef(new Animated.Value(0)).current
-
-  // Notification states
-  const [toast, setToast] = useState({ visible: false, title: '', message: '', conversationId: null, fromUserId: null })
+  const appState = useRef(AppState.currentState)
+  
+  // State for notifications and toasts
   const [notifications, setNotifications] = useState([])
+  const [toast, setToast] = useState({ visible: false, title: '', message: '', conversationId: null, fromUserId: null })
+  
+  // Subscription status state
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
+  const [subscriptionStatusLoaded, setSubscriptionStatusLoaded] = useState(false)
   const [showNotifPanel, setShowNotifPanel] = useState(false)
+
+  // Debug subscription status changes
+  useEffect(() => {
+    console.log('[App] hasActiveSubscription state changed to:', hasActiveSubscription);
+  }, [hasActiveSubscription]);
+
+  // Initialize subscription status manager when user is authenticated
+  useEffect(() => {
+    if (currentUser?.id) {
+      console.log('[App] Setting up subscription status manager for user:', currentUser.id);
+      
+      // Add listener for subscription status changes FIRST
+      const unsubscribe = subscriptionStatusManager.addListener((status) => {
+        console.log('[App] Subscription status updated from manager:', status);
+        console.log('[App] Setting hasActiveSubscription state to:', status);
+        setHasActiveSubscription(status);
+        setSubscriptionStatusLoaded(true);
+        console.log('[App] hasActiveSubscription state updated');
+      });
+
+      // Small delay to ensure listener is registered before initialization
+      setTimeout(() => {
+        // Initialize the manager and immediately check status - FAST startup
+        subscriptionStatusManager.initialize(currentUser.id).then(initialStatus => {
+          console.log('[App] Initial subscription status:', initialStatus);
+          setHasActiveSubscription(initialStatus);
+          setSubscriptionStatusLoaded(true);
+          
+          // Force notify listeners to ensure UI updates
+          subscriptionStatusManager.notifyListeners(initialStatus);
+          console.log('[App] ✅ FAST startup complete - features unlocked immediately');
+        }).catch(error => {
+          console.error('[App] Error initializing subscription status:', error);
+          setSubscriptionStatusLoaded(true); // Mark as loaded even on error
+        });
+      }, 10); // 10ms delay to ensure listener registration
+
+      return () => {
+        unsubscribe();
+      };
+    } else {
+      // User logged out, stop subscription checking
+      setHasActiveSubscription(false);
+      setSubscriptionStatusLoaded(false);
+    }
+  }, [currentUser?.id]);
+
+  // Ensure fresh subscription status when navigating to Main screen
+  useEffect(() => {
+    if (screen === 'Main' && currentUser?.id) {
+      console.log('[App] Ensuring fresh subscription status...');
+      subscriptionStatusManager.refresh().then(status => {
+        console.log('[App] Manual refresh result:', status);
+        // Force update the state if it's different
+        if (status !== hasActiveSubscription) {
+          console.log('[App] Forcing state update from', hasActiveSubscription, 'to', status);
+          setHasActiveSubscription(status);
+          // Also force notify all listeners
+          subscriptionStatusManager.notifyListeners(status);
+        }
+        // Always mark as loaded when we get a result
+        if (!subscriptionStatusLoaded) {
+          setSubscriptionStatusLoaded(true);
+        }
+      }).catch(error => {
+        console.error('[App] Error ensuring fresh subscription status:', error);
+      });
+    }
+  }, [screen, currentUser?.id, hasActiveSubscription]);
 
   // Rate-limit location syncs
 const lastLocSyncRef = useRef(0);
-
 /**
  * Auto-sync location to profile and all cars
  * - force = true bypasses cooldown
@@ -194,7 +267,7 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
   const {
     data: subscriptionStatus,
     isLoading: isSubLoading,
-    isFetching: isSubFetching,
+    isFetching: isSubFetchingQuery,
     refetch: refetchUserStatus
   } = useQuery({
     queryKey: ['userStatus', currentUser?.id],
@@ -212,22 +285,30 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
     refetchOnMount: 'always',
     refetchOnReconnect: true,
   })
-  // Tri-state: true | false | undefined (unknown). Only block when strictly false.
-  const hasActiveSubscription = subscriptionStatus?.hasActiveSubscription
-
   // Pending if user not ready, query fetching, or no result yet after enabling
   const isSubUnknown = !!currentUser?.id && (typeof subscriptionStatus === 'undefined')
-  const subscriptionCheckPending = !currentUser?.id || isSubFetching || isSubUnknown
+  const subscriptionCheckPending = !currentUser?.id || isSubFetchingQuery || isSubUnknown
 
   // Ensure we have the freshest subscription status before gating actions
-  const ensureSubscriptionFresh = React.useCallback(async () => {
+  const ensureSubscriptionFresh = useCallback(async () => {
     try {
-      const res = await refetchUserStatus()
-      return !!res?.data?.hasActiveSubscription
-    } catch (_) {
-      return !!subscriptionStatus?.hasActiveSubscription
+      console.log('[App] Ensuring fresh subscription...');
+      const freshStatus = await subscriptionStatusManager.refresh();
+      console.log('[App] Fresh subscription result:', freshStatus);
+      
+      // Force update the App state if it's different
+      if (freshStatus !== hasActiveSubscription) {
+        console.log('[App] Force updating hasActiveSubscription from', hasActiveSubscription, 'to', freshStatus);
+        setHasActiveSubscription(freshStatus);
+        setSubscriptionStatusLoaded(true);
+      }
+      
+      return freshStatus;
+    } catch (error) {
+      console.error('[App] Error ensuring fresh subscription:', error);
+      return hasActiveSubscription; // fallback to current state
     }
-  }, [refetchUserStatus, subscriptionStatus?.hasActiveSubscription])
+  }, [hasActiveSubscription])
 
   // Preload persisted session so the app stays logged in after cold start
   useEffect(() => {
@@ -235,8 +316,16 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
       try {
         const { data: { session } } = await supabase.auth.getSession()
         if (session?.user) {
-          // Bridge Supabase session token to AuthService for backend endpoints (e.g., referral)
-          try { if (session?.access_token) { AuthService.token = session.access_token } } catch (_) {}
+          // Bridge Supabase session to AuthService for backend endpoints
+          try { 
+            if (session?.access_token) { 
+              AuthService.token = session.access_token 
+              AuthService.user = session.user
+              console.log('[App] Bridged Supabase session to AuthService:', session.user.id)
+            } 
+          } catch (e) {
+            console.error('[App] Error bridging session:', e)
+          }
           const uid = session.user.id
           // Navigate immediately for fast startup
           setScreen('Main')
@@ -291,7 +380,7 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
   // Save Expo push token to backend for the signed-in user
   const savePushToken = useCallback(async (token, userId) => {
     try {
-      const baseUrl = process.env.EXPO_PUBLIC_API_URL_HOME || 'http://10.0.2.2:3000'
+      const baseUrl = process.env.EXPO_PUBLIC_API_URL_HOME || 'https://aba-damideqi-app.onrender.com'
       await fetch(`${baseUrl}/api/push/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -611,8 +700,16 @@ const autoSyncLocationAndCars = useCallback(async (userId, force = false) => {
         notificationService.stopMessageSubscription()
         queryClient.clear()
       } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
-        // Keep AuthService token in sync with Supabase session
-        try { if (session?.access_token) { AuthService.token = session.access_token } } catch (_) {}
+        // Keep AuthService in sync with Supabase session
+        try { 
+          if (session?.access_token && session?.user) { 
+            AuthService.token = session.access_token 
+            AuthService.user = session.user
+            console.log('[App] Updated AuthService session:', session.user.id)
+          } 
+        } catch (e) {
+          console.error('[App] Error updating session:', e)
+        }
         refetchUser()
         // Refresh subscription status on sign-in/token refresh
         try { refetchUserStatus() } catch (_) {}
@@ -1257,7 +1354,9 @@ useEffect(() => {
   }
 
   const onSubscriptionSuccess = () => {
-    console.log('Subscription successful, redirecting to main screen')
+    console.log('Subscription successful, refreshing status and redirecting to main screen')
+    // Immediately refresh subscription status
+    subscriptionStatusManager.refresh();
     goToMain()
   }
 
@@ -1299,7 +1398,8 @@ useEffect(() => {
           refreshUnreadTotal={refreshUnreadTotal}
           isPreview={true}
           hasActiveSubscription={hasActiveSubscription}
-          isSubFetching={isSubFetching}
+          subscriptionStatusLoaded={subscriptionStatusLoaded}
+          isSubFetching={isSubFetchingQuery}
           subscriptionCheckPending={subscriptionCheckPending}
           ensureSubscriptionFresh={ensureSubscriptionFresh}
         />
@@ -1402,7 +1502,8 @@ useEffect(() => {
                   user={currentUser}
                   profile={currentUser?.profile}
                   hasActiveSubscription={hasActiveSubscription}
-                  isSubFetching={isSubFetching}
+                  subscriptionStatusLoaded={subscriptionStatusLoaded}
+                  isSubFetching={isSubFetchingQuery}
                   subscriptionCheckPending={subscriptionCheckPending}
                   ensureSubscriptionFresh={ensureSubscriptionFresh}
                   goToSubscription={goToSubscription}
@@ -1649,6 +1750,7 @@ useEffect(() => {
                     goToProfile={goToProfile}
                     openChatWithUser={openChatWithUser}
                     hasActiveSubscription={hasActiveSubscription}
+                    subscriptionStatusLoaded={subscriptionStatusLoaded}
                     goToSubscription={goToSubscription}
                   />
                 ) : (

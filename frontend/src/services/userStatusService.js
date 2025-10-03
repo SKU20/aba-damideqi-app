@@ -14,7 +14,7 @@ const userStatusService = {
         const accessToken = sessionData?.session?.access_token;
         if (!accessToken) throw e;
 
-        const apiUrl = AuthService.getApiUrl?.() || process.env.EXPO_PUBLIC_API_URL || 'http://localhost:3000/api';
+        const apiUrl = AuthService.getApiUrl?.() || process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com/api';
         const resp = await fetch(`${apiUrl}/user/status`, {
           method: 'GET',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },

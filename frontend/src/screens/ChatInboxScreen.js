@@ -19,6 +19,9 @@ export default function ChatInboxScreen({ navigation, goBack, goToThread }) {
     queryFn: () => chatService.getMyUserId(),
     staleTime: Infinity, // User ID doesn't change during session
     retry: 1,
+    onError: (error) => {
+      console.log('[ChatInboxScreen] User not authenticated, skipping chat features');
+    }
   });
 
   // Get conversations list
@@ -37,6 +40,7 @@ export default function ChatInboxScreen({ navigation, goBack, goToThread }) {
         return tb - ta;
       });
     },
+    enabled: !!myId, // Only run if user is authenticated
     refetchInterval: false, // Disable polling, rely on real-time updates
     // Always treat as stale on mount so navigating to Inbox fetches latest server state
     staleTime: 0,

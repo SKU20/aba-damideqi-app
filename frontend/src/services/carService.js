@@ -1,15 +1,37 @@
 // CarService.js - Updated with pagination support for infinite queries
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import authService from './authService';
 
 class CarService {
   constructor() {
-    this.API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com/api';
+    const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com';
+    // Ensure the URL ends with /api
+    this.API_BASE_URL = baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
   }
 
   // Get auth token from AsyncStorage (shared with EventService)
   async getAuthToken() {
     try {
       const token = await AsyncStorage.getItem('authToken');
+      if (token) {
+        console.log('[CarService] Token found, length:', token.length);
+        const parts = token.split('.');
+        console.log('[CarService] Token parts:', parts.length);
+        // Check if token looks valid (basic format check)
+        if (parts.length !== 3) {
+          console.warn('[CarService] Token format invalid (parts:', parts.length, '), clearing...');
+          await AsyncStorage.removeItem('authToken');
+          return null;
+        }
+        // Also check if parts aren't empty
+        if (parts.some(part => !part || part.length < 10)) {
+          console.warn('[CarService] Token parts too short, clearing...');
+          await AsyncStorage.removeItem('authToken');
+          return null;
+        }
+      } else {
+        console.log('[CarService] No token found in storage');
+      }
       return token;
     } catch (error) {
       console.error('Error getting auth token:', error);
@@ -51,6 +73,18 @@ class CarService {
 
       if (!response.ok) {
         const msg = (data && (data.error || data.message)) || `HTTP error! status: ${response.status}`;
+        
+        // If token is invalid, clear it from storage and notify user
+        if (response.status === 401 && (msg.includes('Invalid') || msg.includes('expired') || msg.includes('token') || msg.includes('required'))) {
+          console.warn('[CarService] Token invalid, clearing from storage. Error:', msg);
+          await AsyncStorage.removeItem('authToken');
+          // Also clear user data
+          await AsyncStorage.removeItem('userData');
+          
+          // Throw a specific error that the UI can handle
+          throw new Error('SESSION_EXPIRED');
+        }
+        
         throw new Error(msg);
       }
 
@@ -290,46 +324,138 @@ class CarService {
     }
   }
 
-  // Upload car photos
-  async uploadCarPhotos(carId, userId, photos) {
-    try {
-      const formData = new FormData();
-      formData.append('carId', carId);
-      formData.append('userId', userId);
-      
-      photos.forEach((photo, index) => {
-        formData.append('photos', {
+  // Upload car photos one by one for better reliability
+  // In CarService.js - Replace uploadCarPhotos method
+
+async uploadCarPhotos(carId, userId, photos) {
+  if (!photos || photos.length === 0) {
+    return { success: true, uploadedCount: 0 };
+  }
+
+  await authService.initialize();
+  const token = authService.token;
+  
+  const headers = {};
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  // Don't set Content-Type for FormData - let the browser set it with boundary
+
+  let uploadedCount = 0;
+  const failedUploads = [];
+
+  // Upload photos one by one with retry logic
+  for (let i = 0; i < photos.length; i++) {
+    const photo = photos[i];
+    let uploaded = false;
+    let lastError = null;
+    
+    // Try up to 3 times per photo
+    for (let attempt = 1; attempt <= 3 && !uploaded; attempt++) {
+      try {
+        console.log(`[CarService] Uploading photo ${i + 1}/${photos.length} (attempt ${attempt}/3)`);
+        
+        const formData = new FormData();
+        formData.append('carId', carId);
+        formData.append('userId', userId);
+        
+        // React Native requires this specific format for file uploads
+        // Determine the correct MIME type based on file extension
+        let mimeType = 'image/jpeg';
+        if (photo.uri.toLowerCase().includes('.png')) {
+          mimeType = 'image/png';
+        } else if (photo.uri.toLowerCase().includes('.jpg') || photo.uri.toLowerCase().includes('.jpeg')) {
+          mimeType = 'image/jpeg';
+        }
+        
+        const fileObj = {
           uri: photo.uri,
-          type: photo.type || 'image/jpeg',
-          name: photo.name || `photo_${index}.jpg`,
-        });
-      });
+          type: mimeType,
+          name: photo.name || `photo_${i}.jpg`,
+        };
+        
+        // Use 'photos' as the field name (matching backend expectation)
+        formData.append('photos', fileObj);
 
-      const response = await fetch(`${this.API_BASE_URL}/cars/photos/upload`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-        body: formData,
-      });
+        // 30 second timeout per attempt
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 30000);
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        try {
+          console.log(`[CarService] Uploading to: ${this.API_BASE_URL}/cars/photos/upload`);
+          console.log(`[CarService] FormData contents:`, {
+            carId,
+            userId,
+            photoUri: photo.uri,
+            photoType: mimeType,
+            photoName: photo.name || `photo_${i}.jpg`,
+            fileObj: fileObj
+          });
+          
+          const response = await fetch(`${this.API_BASE_URL}/cars/photos/upload`, {
+            method: 'POST',
+            headers,
+            body: formData,
+            signal: controller.signal,
+          });
+
+          clearTimeout(timeoutId);
+          
+          console.log(`[CarService] Response status: ${response.status}`);
+
+          if (response.ok) {
+            const result = await response.json();
+            console.log(`[CarService] Response data:`, result);
+            if (result.success) {
+              uploadedCount++;
+              uploaded = true;
+              console.log(`[CarService] Photo ${i + 1} uploaded successfully`);
+            } else {
+              lastError = result.message;
+              console.warn(`[CarService] Upload failed with message:`, result.message);
+            }
+          } else {
+            const errorText = await response.text();
+            lastError = `HTTP ${response.status}: ${errorText}`;
+            console.warn(`[CarService] HTTP error:`, lastError);
+          }
+        } catch (fetchError) {
+          clearTimeout(timeoutId);
+          lastError = fetchError.name === 'AbortError' ? 'Timeout' : fetchError.message;
+          console.warn(`[CarService] Photo ${i + 1} attempt ${attempt} failed:`, lastError);
+          console.warn(`[CarService] Fetch error details:`, fetchError);
+          
+          // Wait before retry (exponential backoff)
+          if (attempt < 3) {
+            await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+          }
+        }
+      } catch (error) {
+        lastError = error.message;
+        console.warn(`[CarService] Photo ${i + 1} attempt ${attempt} error:`, lastError);
       }
-
-      const result = await response.json();
-      
-      if (!result.success) {
-        throw new Error(result.message || 'Failed to upload photos');
-      }
-
-      return result.data;
-    } catch (error) {
-      console.error('Error uploading photos:', error);
-      throw error;
+    }
+    
+    if (!uploaded) {
+      failedUploads.push({ index: i, error: lastError });
     }
   }
 
+  if (uploadedCount === 0) {
+    throw new Error(`All photo uploads failed. First error: ${failedUploads[0]?.error || 'Unknown error'}`);
+  }
+
+  if (failedUploads.length > 0) {
+    console.warn(`[CarService] ${failedUploads.length} photos failed to upload after retries`);
+  }
+
+  return { 
+    success: true, 
+    uploadedCount, 
+    totalCount: photos.length,
+    failedCount: failedUploads.length 
+  };
+}
   // Delete a photo
   async deletePhoto(photoId, userId) {
     try {

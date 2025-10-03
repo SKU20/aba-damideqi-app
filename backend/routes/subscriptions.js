@@ -1,10 +1,11 @@
 const express = require('express');
 const { supabaseAdmin } = require('../config/supabase');
+const authMiddleware = require('../middleware/auth');
 const router = express.Router();
 
 
 // POST /api/subscriptions - Create a new user subscription
-router.post('/', async (req, res) => {
+router.post('/', authMiddleware, async (req, res) => {
   
   try {
     const { user_id, plan_id } = req.body;
@@ -123,11 +124,11 @@ router.post('/', async (req, res) => {
   }
 });
 
-// GET /api/subscriptions/:userId - Get user's current subscription
-router.get('/:userId', async (req, res) => {
+// GET /api/subscriptions/me - Get current user's subscription (authenticated)
+router.get('/me', authMiddleware, async (req, res) => {
   
   try {
-    const { userId } = req.params;
+    const userId = req.user.id; // Get userId from authenticated user
 
     const { data: subscription, error } = await supabaseAdmin
       .from('user_subscriptions')

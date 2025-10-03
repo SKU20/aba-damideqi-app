@@ -1,37 +1,35 @@
 // SubscriptionService - Simple direct connection
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import authService from './authService';
 
 class SubscriptionService {
   constructor() {
-    this.apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com/api';
+    this.apiUrl = null;
+    this.isInitialized = false;
+  }
+
+  async initialize() {
+    if (this.isInitialized && this.apiUrl) return;
+    // Use the same URL logic as other services for consistency
+    const baseUrl = process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com';
+    this.apiUrl = baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
+    this.isInitialized = true;
+    console.log('[SubscriptionService] Initialized with API URL:', this.apiUrl);
   }
 
   async makeRequest(endpoint, options = {}) {
-    const url = `${this.apiUrl}${endpoint}`;
+    await this.initialize();
+    await authService.initialize();
     
-    const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...options.headers,
-      },
-      ...options,
-    };
-
-    const response = await fetch(url, config);
+    // Ensure AuthService has a valid token
+    if (!authService.token) {
+      console.warn('[SubscriptionService] No token available, user may need to log in');
+      throw new Error('Access token required - please log in');
+    }
     
-    let data;
-    try {
-      data = await response.json();
-    } catch {
-      throw new Error('Invalid server response');
-    }
-
-    if (!response.ok) {
-      throw new Error(data.error || `HTTP ${response.status}`);
-    }
-
-    return data;
+    // Use AuthService's makeRequest method which handles token refresh automatically
+    console.log('[SubscriptionService] Making request to:', endpoint, 'with auth:', !!authService.token);
+    return await authService.makeRequest(endpoint, options);
   }
 
   // Subscription methods
@@ -78,10 +76,11 @@ class SubscriptionService {
     }
   }
 
-  async getUserSubscription(userId) {
+  async getUserSubscription() {
     try {
-      const result = await this.makeRequest(`/subscriptions/${userId}`);
+      const result = await this.makeRequest('/subscriptions/me');
 
+      console.log('[SubscriptionService] User subscription:', result.subscription);
       return {
         success: true,
         subscription: result.subscription
@@ -93,6 +92,35 @@ class SubscriptionService {
         error: error.message || 'Failed to fetch subscription',
         subscription: null
       };
+    }
+  }
+
+  // Check if user has active subscription (simpler method)
+  async hasActiveSubscription() {
+    try {
+      console.log('[SubscriptionService] 🔄 Checking subscription status...');
+      const result = await this.makeRequest('/user/status');
+      console.log('[SubscriptionService] Raw API response:', result);
+      console.log('[SubscriptionService] result.data:', result.data);
+      console.log('[SubscriptionService] result.data.hasActiveSubscription:', result.data?.hasActiveSubscription);
+      
+      // Display detailed subscription data from backend (same as backend logs)
+      if (result.data?.subscription) {
+        console.log('[SubscriptionService] Detailed subscription from backend:', {
+          data: result.data.subscription,
+          error: null
+        });
+      } else {
+        console.log('[SubscriptionService] No subscription details returned from backend');
+      }
+      
+      const hasActive = result.data?.hasActiveSubscription || false;
+      console.log('[SubscriptionService] ✅ Final return value:', hasActive);
+      
+      return hasActive;
+    } catch (error) {
+      console.error('[SubscriptionService] ❌ Error checking subscription status:', error);
+      return false;
     }
   }
 

@@ -14,8 +14,10 @@ import {
   Platform,
   ActivityIndicator,
   PermissionsAndroid,
-  Dimensions
+  Dimensions,
+  Linking
 } from 'react-native';
+import * as Application from 'expo-application';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import * as ImagePicker from 'expo-image-picker';
 import CarService from '../services/carService';
@@ -110,24 +112,64 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
     mutationFn: async (carData) => {
       const savedCar = await CarService.addCar(userId, carData);
       
+      let photoUploadResult = null;
       if (photos.length > 0) {
-        await CarService.uploadCarPhotos(savedCar.id, userId, photos);
+        try {
+          photoUploadResult = await CarService.uploadCarPhotos(savedCar.id, userId, photos);
+          console.log('[AddCarScreen] Photo upload result:', photoUploadResult);
+        } catch (photoError) {
+          console.warn('[AddCarScreen] Photo upload failed, but car was saved:', photoError.message);
+          photoUploadResult = { success: false, uploadedCount: 0, totalCount: photos.length, failedCount: photos.length };
+          // Don't throw error - car is saved, photos just failed
+        }
       }
       
-      return savedCar;
+      return { ...savedCar, photoUploadResult };
     },
-    onSuccess: () => {
+    onSuccess: (result) => {
       // Invalidate and refetch any car-related queries
       queryClient.invalidateQueries({ queryKey: ['cars'] });
       queryClient.invalidateQueries({ queryKey: ['userCars', userId] });
       
-      Alert.alert(t.success, t.carAddedSuccess, [
+      let message = t.carAddedSuccess;
+      
+      if (result?.photoUploadResult) {
+        const { uploadedCount, totalCount, failedCount } = result.photoUploadResult;
+        if (uploadedCount === totalCount) {
+          message += `\n\n✅ All ${totalCount} photos uploaded successfully!`;
+        } else if (uploadedCount > 0) {
+          message += `\n\n⚠️ ${uploadedCount}/${totalCount} photos uploaded. ${failedCount} failed due to network issues.`;
+        } else {
+          message += '\n\n❌ Photos failed to upload due to network issues. You can add photos later.';
+        }
+      }
+      
+      Alert.alert(t.success, message, [
         { text: 'OK', onPress: () => goBackToMain() }
       ]);
     },
     onError: (error) => {
       // Use warn to avoid red error spam for expected validation messages
       console.warn('Save vehicle blocked:', error?.message || error);
+      
+      // Handle session expiration
+      if (error?.message === 'SESSION_EXPIRED') {
+        Alert.alert(
+          'Session Expired',
+          'Your session has expired. Please log in again.',
+          [
+            { 
+              text: 'OK', 
+              onPress: () => {
+                // Go back to main screen which should handle authentication
+                goBackToMain();
+              }
+            }
+          ]
+        );
+        return;
+      }
+      
       Alert.alert(t.error, error.message);
     }
   });
@@ -260,17 +302,63 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
 
   const requestCameraPermission = async () => {
     try {
-      // For Expo, we should use ImagePicker permissions for both platforms
-      const { status: cameraStatus } = await ImagePicker.requestCameraPermissionsAsync();
-      const { status: libraryStatus } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('[AddCarScreen] Requesting camera and media library permissions...');
       
-      console.log('[AddCarScreen] Permission status:', { cameraStatus, libraryStatus });
+      // First check current permissions
+      const { status: currentCameraStatus } = await ImagePicker.getCameraPermissionsAsync();
+      const { status: currentLibraryStatus } = await ImagePicker.getMediaLibraryPermissionsAsync();
       
-      if (cameraStatus !== 'granted' || libraryStatus !== 'granted') {
-        console.log('[AddCarScreen] Permissions not granted');
+      console.log('[AddCarScreen] Current permissions:', { 
+        camera: currentCameraStatus, 
+        library: currentLibraryStatus 
+      });
+      
+      // Request permissions if not already granted
+      let cameraStatus = currentCameraStatus;
+      let libraryStatus = currentLibraryStatus;
+      
+      if (currentCameraStatus !== 'granted') {
+        console.log('[AddCarScreen] Requesting camera permission...');
+        try {
+          // Add timeout to prevent hanging
+          const permissionPromise = ImagePicker.requestCameraPermissionsAsync();
+          const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('Permission request timeout')), 10000)
+          );
+          
+          const result = await Promise.race([permissionPromise, timeoutPromise]);
+          cameraStatus = result.status;
+          console.log('[AddCarScreen] Camera permission result:', result);
+        } catch (error) {
+          console.error('[AddCarScreen] Camera permission request failed:', error);
+          cameraStatus = 'denied';
+        }
+      }
+      
+      if (currentLibraryStatus !== 'granted') {
+        console.log('[AddCarScreen] Requesting media library permission...');
+        const result = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        libraryStatus = result.status;
+        console.log('[AddCarScreen] Media library permission result:', result);
+      }
+      
+      console.log('[AddCarScreen] Final permission status:', { 
+        camera: cameraStatus, 
+        library: libraryStatus 
+      });
+      
+      // Check if we have at least library permission
+      if (libraryStatus !== 'granted') {
+        console.log('[AddCarScreen] Media library permission required but not granted');
         return false;
       }
       
+      // If camera permission denied but library granted, we can still proceed with library only
+      if (cameraStatus !== 'granted') {
+        console.log('[AddCarScreen] Camera permission denied, but library permission granted - proceeding with library only');
+      }
+      
+      console.log('[AddCarScreen] All permissions granted successfully');
       return true;
     } catch (err) {
       console.error('[AddCarScreen] Permission request error:', err);
@@ -548,84 +636,164 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
   };
 
   const showImagePicker = async () => {
-    const hasPermission = await requestCameraPermission();
-    if (!hasPermission) {
-      Alert.alert(
-        t.error, 
-        'Camera and storage permissions are required to add photos. Please grant permissions in your device settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Try Again', onPress: showImagePicker }
-        ]
-      );
-      return;
-    }
-
-    if (Platform.OS === 'ios') {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: [t.cancel, t.takePhoto, t.chooseFromLibrary],
-          cancelButtonIndex: 0,
-        },
-        (buttonIndex) => {
-          if (buttonIndex === 1) {
-            openCamera();
-          } else if (buttonIndex === 2) {
-            openImageLibrary();
+    console.log('[AddCarScreen] showImagePicker called');
+    
+    try {
+      // Always show both options - let individual functions handle permissions
+      if (Platform.OS === 'ios') {
+        ActionSheetIOS.showActionSheetWithOptions(
+          {
+            options: [t.cancel, t.takePhoto, t.chooseFromLibrary],
+            cancelButtonIndex: 0,
+          },
+          (buttonIndex) => {
+            console.log('[AddCarScreen] iOS ActionSheet button pressed:', buttonIndex);
+            if (buttonIndex === 1) {
+              openCamera();
+            } else if (buttonIndex === 2) {
+              openImageLibrary();
+            }
           }
-        }
-      );
-    } else {
-      Alert.alert(
-        t.addPhoto,
-        'Select photo source',
-        [
-          { text: t.cancel, style: 'cancel' },
-          { text: t.takePhoto, onPress: openCamera },
-          { text: t.chooseFromLibrary, onPress: openImageLibrary }
-        ]
-      );
+        );
+      } else {
+        console.log('[AddCarScreen] Showing Android alert for photo source');
+        Alert.alert(
+          t.addPhoto,
+          'Select photo source',
+          [
+            { text: t.cancel, style: 'cancel' },
+            { text: t.takePhoto, onPress: () => {
+              console.log('[AddCarScreen] Camera option selected');
+              openCamera();
+            }},
+            { text: t.chooseFromLibrary, onPress: () => {
+              console.log('[AddCarScreen] Library option selected');
+              openImageLibrary();
+            }}
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('[AddCarScreen] showImagePicker error:', error);
+      Alert.alert('Error', 'Failed to open image picker: ' + error.message);
     }
   };
 
   const openCamera = async () => {
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.8,
-    });
+    try {
+      console.log('[AddCarScreen] Opening camera...');
+      
+      // Check camera permission when user actually tries to use camera
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      console.log('[AddCarScreen] Camera permission status:', status);
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Camera Permission Required',
+          'Please grant camera permission to take photos.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Settings', onPress: () => {
+              if (Platform.OS === 'ios') {
+                Linking.openURL('app-settings:');
+              } else {
+                Linking.openURL('package:' + Application.applicationId);
+              }
+            }}
+          ]
+        );
+        return;
+      }
+      
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.5, // Reduced quality for better upload reliability
+      });
 
-    if (!result.canceled) {
-      const asset = result.assets[0];
-      const newPhoto = {
-        id: Date.now().toString(),
-        uri: asset.uri,
-        type: asset.type || 'image/jpeg',
-        name: `camera_${Date.now()}.jpg`,
-      };
-      setPhotos(prev => [...prev, newPhoto]);
+      console.log('[AddCarScreen] Camera result:', result);
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const asset = result.assets[0];
+        console.log('[AddCarScreen] Camera asset:', asset);
+        
+        const newPhoto = {
+          id: Date.now().toString(),
+          uri: asset.uri,
+          type: asset.type || 'image/jpeg',
+          name: `camera_${Date.now()}.jpg`,
+        };
+        
+        console.log('[AddCarScreen] Adding photo:', newPhoto);
+        setPhotos(prev => [...prev, newPhoto]);
+      } else {
+        console.log('[AddCarScreen] Camera was canceled or no assets');
+      }
+    } catch (error) {
+      console.error('[AddCarScreen] Camera error:', error);
+      Alert.alert('Camera Error', 'Failed to open camera: ' + error.message);
     }
   };
 
   const openImageLibrary = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.8,
-      allowsMultipleSelection: true,
-    });
+    try {
+      console.log('[AddCarScreen] Opening image library...');
+      
+      // Check library permission when user actually tries to use library
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      console.log('[AddCarScreen] Library permission status:', status);
+      
+      if (status !== 'granted') {
+        Alert.alert(
+          'Photo Library Permission Required',
+          'Please grant photo library permission to select photos.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Settings', onPress: () => {
+              if (Platform.OS === 'ios') {
+                Linking.openURL('app-settings:');
+              } else {
+                Linking.openURL('package:' + Application.applicationId);
+              }
+            }}
+          ]
+        );
+        return;
+      }
+      
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.5, // Reduced quality for better upload reliability
+        allowsMultipleSelection: true,
+      });
 
-    if (!result.canceled) {
-      const ts = Date.now();
-      const newPhotos = result.assets.map((asset, index) => ({
-        id: (ts + index).toString(),
-        uri: asset.uri,
-        type: asset.type || 'image/jpeg',
-        name: `library_${ts}_${index}.jpg`,
-      }));
-      setPhotos(prev => [...prev, ...newPhotos]);
+      console.log('[AddCarScreen] Library result:', result);
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        console.log('[AddCarScreen] Library assets count:', result.assets.length);
+        
+        const ts = Date.now();
+        const newPhotos = result.assets.map((asset, index) => {
+          console.log('[AddCarScreen] Library asset', index, ':', asset);
+          return {
+            id: (ts + index).toString(),
+            uri: asset.uri,
+            type: asset.type || 'image/jpeg',
+            name: `library_${ts}_${index}.jpg`,
+          };
+        });
+        
+        console.log('[AddCarScreen] Adding photos:', newPhotos);
+        setPhotos(prev => [...prev, ...newPhotos]);
+      } else {
+        console.log('[AddCarScreen] Library was canceled or no assets');
+      }
+    } catch (error) {
+      console.error('[AddCarScreen] Library error:', error);
+      Alert.alert('Library Error', 'Failed to open photo library: ' + error.message);
     }
   };
 

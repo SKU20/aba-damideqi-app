@@ -55,17 +55,36 @@ function runPythonValidator({ vehicleType, imagePaths }) {
 }
 
 // Fallback function when Python is not available
+// Basic validation: require at least 2 photos for cars, 1 for motorcycles
 function fallbackValidator({ vehicleType, imagePaths }) {
   console.log('[imageValidatorService] Using fallback validation (Python not available)');
+  
+  const minPhotos = vehicleType === 'car' ? 2 : 1;
+  
+  if (imagePaths.length < minPhotos) {
+    return {
+      ok: false,
+      reason: `At least ${minPhotos} photos required for ${vehicleType}`,
+      engineCount: 0,
+      invalid: imagePaths.map((path, index) => ({
+        path: path,
+        reason: 'Insufficient photos',
+        index: index
+      })),
+      predictions: []
+    };
+  }
+  
+  // Accept photos but warn that AI validation is unavailable
   return {
     ok: true,
-    reason: 'Photos validated (Python unavailable)',
-    engineCount: vehicleType === 'car' ? Math.min(imagePaths.length, 1) : 0,
+    reason: 'Photos accepted (AI validation unavailable - please ensure photos are vehicle-related)',
+    engineCount: vehicleType === 'car' ? 1 : 0, // Assume 1 engine photo
     invalid: [],
     predictions: imagePaths.map((path, index) => ({
       path: path,
-      label: `${vehicleType} photo`,
-      confidence: 0.8,
+      label: `${vehicleType} photo (not AI-verified)`,
+      confidence: 0.5, // Lower confidence since not AI-verified
       index: index
     }))
   };

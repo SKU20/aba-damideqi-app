@@ -495,22 +495,26 @@ router.post('/resend-verification', [
 // Refresh token endpoint
 router.post('/refresh', async (req, res) => {
   try {
+    console.log('[auth/refresh] Refresh token request received');
     const { refresh_token } = req.body;
 
     if (!refresh_token) {
+      console.warn('[auth/refresh] No refresh token provided');
       return res.status(400).json({
         success: false,
         error: 'Refresh token is required'
       });
     }
 
+    console.log('[auth/refresh] Attempting to refresh session with Supabase...');
+    
     // Use Supabase to refresh the session
-    const { data, error } = await supabaseAdmin.auth.refreshSession({
+    const { data, error } = await supabaseClient.auth.refreshSession({
       refresh_token: refresh_token
     });
 
     if (error) {
-      console.error('Token refresh error:', error.message || error);
+      console.error('[auth/refresh] Supabase refresh error:', error.message || error);
       return res.status(401).json({
         success: false,
         error: error.message || 'Invalid refresh token'
@@ -518,11 +522,14 @@ router.post('/refresh', async (req, res) => {
     }
 
     if (!data.session || !data.user) {
+      console.error('[auth/refresh] No session or user returned from Supabase');
       return res.status(401).json({
         success: false,
         error: 'Failed to refresh session'
       });
     }
+
+    console.log('[auth/refresh] Session refreshed successfully for user:', data.user.id);
 
     // Get user profile
     const { data: profile, error: profileError } = await supabaseAdmin
@@ -532,7 +539,7 @@ router.post('/refresh', async (req, res) => {
       .single();
 
     if (profileError) {
-      console.warn('Profile fetch error during refresh:', profileError);
+      console.warn('[auth/refresh] Profile fetch error:', profileError);
     }
 
     res.json({
@@ -545,10 +552,10 @@ router.post('/refresh', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Refresh endpoint error:', error);
+    console.error('[auth/refresh] Unexpected error:', error);
     res.status(500).json({
       success: false,
-      error: 'Internal server error'
+      error: error.message || 'Internal server error'
     });
   }
 });

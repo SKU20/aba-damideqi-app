@@ -284,15 +284,24 @@ class CarService {
     }
   }
 
-  // Add new car
+  // Add new car (no auth required - userId in route)
   async addCar(userId, carData) {
     try {
-      const result = await this.makeRequest(`/cars/user/${userId}`, {
+      const url = `${this.API_BASE_URL}/cars/user/${userId}`;
+      
+      console.log('[CarService] Adding car without auth token');
+      
+      const response = await fetch(url, {
         method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
         body: JSON.stringify(carData),
       });
       
-      if (!result.success) {
+      const result = await response.json();
+      
+      if (!response.ok || !result.success) {
         throw new Error(result.message || 'Failed to add car');
       }
 
@@ -348,13 +357,10 @@ async uploadCarPhotos(carId, userId, photos) {
     return { success: true, uploadedCount: 0 };
   }
 
-  await authService.initialize();
-  const token = authService.token;
+  console.log('[CarService] Uploading photos without auth token');
   
+  // No auth headers needed - userId is in the request body
   const headers = {};
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
   // Don't set Content-Type for FormData - let the browser set it with boundary
 
   let uploadedCount = 0;

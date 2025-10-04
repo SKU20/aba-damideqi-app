@@ -421,7 +421,7 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
       // Dashboard
       dashboardTitle: 'ლიდერბორდი',
       carTab: 'მანქანა',
-      motoTab: 'მოტო',
+      motoTab: 'მოტოციკლეტები',
       zeroToHundred: '0–100 კმ/სთ',
       zeroToTwoHundred: '100–200 კმ/სთ',
       uploadYourResult: 'ატვირთე შენი შედეგი',
@@ -499,7 +499,7 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
       // Dashboard
       dashboardTitle: 'Leaderboard',
       carTab: 'Car',
-      motoTab: 'Moto',
+      motoTab: 'Motorcycle',
       zeroToHundred: '0–100 km/h',
       zeroToTwoHundred: '100–200 km/h',
       uploadYourResult: 'Upload your result',

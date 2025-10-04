@@ -2,7 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { runPythonValidator } = require('../services/imageValidatorService');
+const { runPythonValidator, fallbackValidator } = require('../services/imageValidatorService');
 
 const router = express.Router();
 
@@ -48,14 +48,8 @@ router.post('/validate-photos', upload.array('photos', 10), async (req, res) => 
       console.log('[validator] Python validation result:', result);
     } catch (pythonError) {
       console.warn('[validator] Python validator failed, using fallback:', pythonError.message);
-      // Fallback: reject all photos if Python fails
-      result = {
-        ok: false,
-        reason: 'Validation service temporarily unavailable',
-        engineCount: 0,
-        invalid: files.map((f, i) => ({ index: i, reason: 'Service error' })),
-        predictions: []
-      };
+      // Use fallback validation when Python is not available
+      result = fallbackValidator({ vehicleType, imagePaths });
     }
 
     // Cleanup temp files

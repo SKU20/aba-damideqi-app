@@ -116,13 +116,41 @@ class LocationService {
 
       console.log('📍 Location obtained:', this.currentLocation);
 
-      // Find nearest Georgian city
+      // Try to get city from reverse geocoding first (works globally)
+      try {
+        const geos = await Location.reverseGeocodeAsync({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+
+        const first = geos && geos[0] ? geos[0] : null;
+        const cityName = first?.city || first?.subregion || first?.region || null;
+        
+        if (cityName) {
+          console.log('🏙️ City from geocoding:', cityName);
+          this.currentCity = {
+            name: cityName,
+            nameKa: cityName, // Use same for non-Georgian cities
+            latitude: location.coords.latitude,
+            longitude: location.coords.longitude
+          };
+          
+          return {
+            location: this.currentLocation,
+            city: this.currentCity
+          };
+        }
+      } catch (geocodeError) {
+        console.warn('Reverse geocoding failed, trying Georgian cities:', geocodeError);
+      }
+
+      // Fallback: Find nearest Georgian city (for Georgia only)
       this.currentCity = findNearestCity(
         this.currentLocation.latitude, 
         this.currentLocation.longitude
       );
 
-      console.log('🏙️ Nearest city:', this.currentCity);
+      console.log('🏙️ Nearest Georgian city:', this.currentCity);
 
       return {
         location: this.currentLocation,

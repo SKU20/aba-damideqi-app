@@ -2,13 +2,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 class AuthService {
   constructor() {
-    this.apiUrl = process.env.EXPO_PUBLIC_API_URL || 'https://aba-damideqi-app.onrender.com/api';
+    this.API_BASE_URL = null;
     this.token = null;
-    this.user = null;
     this.refreshToken = null;
-    this.isInitialized = false;
-    this.tokenExpiryTime = null;
+    this.user = null;
+    this.initialized = false;
     this.refreshInterval = null;
+    this.isRefreshing = false;
+    this.refreshPromise = null;
+    this.lastRefreshAttempt = 0;
+    this.REFRESH_COOLDOWN = 5000; // 5 seconds between refresh attempts
   }
 
   async initialize() {
@@ -392,46 +395,79 @@ class AuthService {
     console.log('[AuthService] Auto-refresh started');
   }
 
-  // Refresh the current token
+  // Refresh the current token with debouncing to prevent infinite loops
   async refreshAuthToken() {
-    try {
-      if (!this.refreshToken) {
-        throw new Error('No refresh token available');
-      }
+    // Prevent multiple simultaneous refresh attempts
+    if (this.isRefreshing) {
+      console.log('[AuthService] ⏳ Refresh already in progress, waiting...');
+      return this.refreshPromise;
+    }
 
-      const response = await this.makeRequest('/auth/refresh', {
-        method: 'POST',
-        body: JSON.stringify({
-          refresh_token: this.refreshToken
-        })
-      });
+    // Rate limit: prevent refresh attempts within cooldown period
+    const now = Date.now();
+    if (now - this.lastRefreshAttempt < this.REFRESH_COOLDOWN) {
+      console.warn('[AuthService] ⚠️ Refresh cooldown active, skipping refresh');
+      return { success: false, error: 'Refresh cooldown active' };
+    }
 
-      if (response.success && response.data && response.data.session) {
-        // Update tokens from session object
-        this.token = response.data.session.access_token;
-        this.refreshToken = response.data.session.refresh_token || this.refreshToken;
+    this.isRefreshing = true;
+    this.lastRefreshAttempt = now;
+
+    this.refreshPromise = (async () => {
+      try {
+        if (!this.refreshToken) {
+          throw new Error('No refresh token available');
+        }
+
+        console.log('[AuthService] 🔄 Starting token refresh...');
+
+        const response = await this.makeRequest('/auth/refresh', {
+          method: 'POST',
+          body: JSON.stringify({
+            refresh_token: this.refreshToken
+          })
+        });
+
+        if (response.success && response.data && response.data.session) {
+          // Update tokens from session object
+          this.token = response.data.session.access_token;
+          this.refreshToken = response.data.session.refresh_token || this.refreshToken;
+          
+          // Update user if provided
+          if (response.data.user) {
+            this.user = response.data.user;
+          }
+          
+          // Update storage
+          await AsyncStorage.multiSet([
+            ['authToken', this.token],
+            ['refreshToken', this.refreshToken],
+            ['userData', JSON.stringify(this.user)]
+          ]);
+
+          console.log('[AuthService] ✅ Token refreshed successfully');
+          return { success: true };
+        } else {
+          throw new Error(response.error || 'Token refresh failed');
+        }
+      } catch (error) {
+        console.error('[AuthService] ❌ Token refresh error:', error);
         
-        // Update user if provided
-        if (response.data.user) {
-          this.user = response.data.user;
+        // Clear session on fatal errors
+        if (error.message.includes('rate limit') || 
+            error.message.includes('Invalid Refresh Token')) {
+          console.warn('[AuthService] 🚫 Fatal refresh error, clearing session');
+          await this.clearSession();
         }
         
-        // Update storage
-        await AsyncStorage.multiSet([
-          ['authToken', this.token],
-          ['refreshToken', this.refreshToken],
-          ['userData', JSON.stringify(this.user)]
-        ]);
-
-        console.log('[AuthService] Token refreshed successfully');
-        return { success: true };
-      } else {
-        throw new Error(response.error || 'Token refresh failed');
+        return { success: false, error: error.message };
+      } finally {
+        this.isRefreshing = false;
+        this.refreshPromise = null;
       }
-    } catch (error) {
-      console.error('[AuthService] Token refresh error:', error);
-      return { success: false, error: error.message };
-    }
+    })();
+
+    return this.refreshPromise;
   }
 }
 

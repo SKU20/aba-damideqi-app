@@ -271,13 +271,16 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
   }, [activeTab, isPreview]);
 
   // Sync user's city/country based on current device location (user-scoped, not car-scoped)
+  // Re-detect location on every cold start to handle user moving to different city
   const locationSyncedRef = useRef(false);
   React.useEffect(() => {
     if (isPreview) return; // avoid side-effects during preview
     const syncUserLocation = async () => {
-      if (locationSyncedRef.current) return;
+      // Always re-detect location on cold start (user might have moved)
+      console.log('[MainScreen] 🌍 Cold start - detecting user location...');
       try {
         const { city, country, region } = await locationService.getCityCountry();
+        console.log('[MainScreen] 📍 Location detected:', { city, country, region });
         
 
         if (city || country || region) {
@@ -314,6 +317,7 @@ const MainScreen = ({ selectedLanguage, setSelectedLanguage, user, profile, navi
             } catch (e2) {}
             locationSyncedRef.current = true;
             setIsGettingLocation(false);
+            console.log('[MainScreen] ✅ Location synced successfully');
           }
         } else {
           
@@ -802,36 +806,39 @@ const getOwnerCityRaw = (car) => {
 
   // Get user's current location
   const getUserLocation = async () => {
+    console.log('[MainScreen] 🌍 Getting user location...');
     setIsGettingLocation(true);
     try {
       const result = await locationService.getLocationWithFallback();
+      console.log('[MainScreen] 📍 Location result:', result);
       
       if (result.location && result.city) {
-        setUserLocation(result.location);
-        setUserCity(result.city);
         
       } else {
-        
+        console.warn('[MainScreen] ⚠️ Could not detect location:', result?.error || 'Unknown error');
       }
     } catch (error) {
-      
+      console.error('[MainScreen] ❌ Error getting location:', error);
     } finally {
       setIsGettingLocation(false);
+      console.log('[MainScreen] 🏁 Location detection complete');
     }
   };
 
   // Toggle location-based filtering
-  const toggleLocationFilter = () => {
-    if (!locationFilterEnabled && !userCity) {
-      // If enabling filter but no location detected, try to get location first
-      getUserLocation().then(() => {
-        setLocationFilterEnabled(true);
-        // derived via memo
-      });
+  const toggleLocationFilter = async () => {
+    console.log('[MainScreen] 🔄 Location filter toggled, current state:', locationFilterEnabled);
+    
+    if (!locationFilterEnabled) {
+      // Enabling filter - always refresh location first
+      console.log('[MainScreen] 🌍 Refreshing location before enabling filter...');
+      await getUserLocation();
+      setLocationFilterEnabled(true);
+      console.log('[MainScreen] ✅ Location filter enabled with fresh location');
     } else {
-      const newFilterState = !locationFilterEnabled;
-      setLocationFilterEnabled(newFilterState);
-      // derived via memo
+      // Disabling filter
+      setLocationFilterEnabled(false);
+      console.log('[MainScreen] ❌ Location filter disabled');
     }
   };
 

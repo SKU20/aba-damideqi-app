@@ -40,25 +40,23 @@ router.post('/validate-photos', upload.array('photos', 10), async (req, res) => 
 
     const imagePaths = files.map(f => f.path);
 
-    // Skip Python validation for now due to Render timeout issues
-    // Use simple fallback validation instead
-    console.log('[validator] Using fallback validation (Python disabled for performance)');
-    const result = {
-      ok: true,
-      reason: 'Photos validated (server-side fallback)',
-      engineCount: vehicleType === 'car' ? Math.min(files.length, 1) : 0,
-      invalid: [],
-      predictions: files.map(f => ({ path: f.path, label: `${vehicleType} photo`, confidence: 0.9 }))
-    };
-    
-    // TODO: Re-enable Python validation when Render performance improves
-    // let result;
-    // try {
-    //   result = await runPythonValidator({ vehicleType, imagePaths });
-    // } catch (pythonError) {
-    //   console.warn('[validator] Python validator failed, using fallback:', pythonError.message);
-    //   result = { ... fallback ... };
-    // }
+    // Run Python validation to detect cars vs other objects
+    console.log('[validator] Running Python validation for', files.length, 'files');
+    let result;
+    try {
+      result = await runPythonValidator({ vehicleType, imagePaths });
+      console.log('[validator] Python validation result:', result);
+    } catch (pythonError) {
+      console.warn('[validator] Python validator failed, using fallback:', pythonError.message);
+      // Fallback: reject all photos if Python fails
+      result = {
+        ok: false,
+        reason: 'Validation service temporarily unavailable',
+        engineCount: 0,
+        invalid: files.map((f, i) => ({ index: i, reason: 'Service error' })),
+        predictions: []
+      };
+    }
 
     // Cleanup temp files
     imagePaths.forEach(p => { try { fs.unlinkSync(p); } catch (_) {} });

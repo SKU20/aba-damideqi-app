@@ -371,7 +371,7 @@ class AuthService {
       clearInterval(this.refreshInterval);
     }
 
-    // Refresh token every 50 minutes (before 1-hour expiry)
+    // Refresh token every 30 minutes (more frequent for reliability)
     this.refreshInterval = setInterval(async () => {
       try {
         console.log('[AuthService] ⏰ Auto-refresh triggered - refreshing token...');
@@ -387,7 +387,7 @@ class AuthService {
         // If refresh fails, clear session
         await this.clearSession();
       }
-    }, 50 * 60 * 1000); // 50 minutes
+    }, 30 * 60 * 1000); // 30 minutes (more frequent refresh)
 
     console.log('[AuthService] Auto-refresh started');
   }

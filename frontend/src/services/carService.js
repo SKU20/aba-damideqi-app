@@ -9,32 +9,19 @@ class CarService {
     this.API_BASE_URL = baseUrl.endsWith('/api') ? baseUrl : `${baseUrl}/api`;
   }
 
-  // Get auth token from AsyncStorage (shared with EventService)
+  // Get auth token directly from AsyncStorage
   async getAuthToken() {
     try {
       const token = await AsyncStorage.getItem('authToken');
-      if (token) {
-        console.log('[CarService] Token found, length:', token.length);
-        const parts = token.split('.');
-        console.log('[CarService] Token parts:', parts.length);
-        // Check if token looks valid (basic format check)
-        if (parts.length !== 3) {
-          console.warn('[CarService] Token format invalid (parts:', parts.length, '), clearing...');
-          await AsyncStorage.removeItem('authToken');
-          return null;
-        }
-        // Also check if parts aren't empty
-        if (parts.some(part => !part || part.length < 10)) {
-          console.warn('[CarService] Token parts too short, clearing...');
-          await AsyncStorage.removeItem('authToken');
-          return null;
-        }
-      } else {
+      if (!token) {
         console.log('[CarService] No token found in storage');
+        return null;
       }
+      
+      console.log('[CarService] Token found, length:', token.length);
       return token;
     } catch (error) {
-      console.error('Error getting auth token:', error);
+      console.error('[CarService] Error getting auth token:', error);
       return null;
     }
   }
@@ -43,7 +30,7 @@ class CarService {
     const url = `${this.API_BASE_URL}${endpoint}`;
 
     // Attach Authorization when available
-    const token = await this.getAuthToken();
+    let token = await this.getAuthToken();
     const headers = {
       'Content-Type': 'application/json',
       ...options.headers,
@@ -74,14 +61,43 @@ class CarService {
       if (!response.ok) {
         const msg = (data && (data.error || data.message)) || `HTTP error! status: ${response.status}`;
         
-        // If token is invalid, clear it from storage and notify user
+        // If token is invalid, try to refresh it once
         if (response.status === 401 && (msg.includes('Invalid') || msg.includes('expired') || msg.includes('token') || msg.includes('required'))) {
+          console.log('[CarService] Token expired, attempting refresh...');
+          
+          // Try to refresh token using AuthService
+          try {
+            const refreshResult = await authService.refreshAuthToken();
+            if (refreshResult.success) {
+              console.log('[CarService] Token refreshed, retrying request...');
+              
+              // Retry the request with new token
+              const newToken = await this.getAuthToken();
+              const newHeaders = {
+                ...headers,
+                'Authorization': `Bearer ${newToken}`
+              };
+              
+              const retryResponse = await fetch(url, {
+                ...options,
+                headers: newHeaders,
+                signal: controller.signal,
+              });
+              
+              if (retryResponse.ok) {
+                let retryData = null;
+                try { retryData = await retryResponse.json(); } catch (_) {}
+                return retryData;
+              }
+            }
+          } catch (refreshError) {
+            console.error('[CarService] Token refresh failed:', refreshError);
+          }
+          
+          // If refresh failed, clear tokens and throw session expired
           console.warn('[CarService] Token invalid, clearing from storage. Error:', msg);
           await AsyncStorage.removeItem('authToken');
-          // Also clear user data
           await AsyncStorage.removeItem('userData');
-          
-          // Throw a specific error that the UI can handle
           throw new Error('SESSION_EXPIRED');
         }
         

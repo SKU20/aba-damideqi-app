@@ -1675,6 +1675,7 @@ useEffect(() => {
                   goBackToMain={goBackToMain}
                   selectedLanguage={selectedLanguage}
                   userId={currentUser?.id}
+                  currentUser={currentUser}
                 />
               )}
 

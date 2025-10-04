@@ -94,9 +94,9 @@ export async function validateVehiclePhotos({ vehicleType, photos }) {
       return { ok: false, reason: `Validator endpoint not available: ${e.message}`, engineCount: 0, invalid: [], skippedAll: false };
     }
     
-    // Add timeout for the actual request
+    // Add timeout for the actual request (generous timeout for Python AI processing)
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout for Python AI processing
     
     try {
       const res = await fetch(url, {

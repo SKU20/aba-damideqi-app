@@ -510,10 +510,10 @@ router.post('/refresh', async (req, res) => {
     });
 
     if (error) {
-      console.error('Token refresh error:', error);
+      console.error('Token refresh error:', error.message || error);
       return res.status(401).json({
         success: false,
-        error: 'Invalid refresh token'
+        error: error.message || 'Invalid refresh token'
       });
     }
 

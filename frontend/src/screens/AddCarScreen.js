@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -26,6 +26,7 @@ import { getUserProfileLocation } from '../services/profileService';
 import { Ionicons } from '@expo/vector-icons';
 import imageValidationService from '../services/imageValidationService';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 // Responsive scaling helpers
 const { width, height } = Dimensions.get('window');
 function scale(size) {
@@ -38,7 +39,7 @@ function moderateScale(size, factor = 0.5) {
   return size + (scale(size) - size) * factor;
 }
 
-const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
+const AddCarScreen = ({ goBackToMain, selectedLanguage, userId, currentUser }) => {
   const queryClient = useQueryClient();
 
   // Form state
@@ -65,6 +66,27 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
   const [showDriveTypeModal, setShowDriveTypeModal] = useState(false);
   const [brandSearchText, setBrandSearchText] = useState('');
   const [modelSearchText, setModelSearchText] = useState('');
+
+  // Check user info when screen loads
+  useEffect(() => {
+    console.log('[AddCarScreen] 🔍 User Check:');
+    console.log('[AddCarScreen] - UserId prop:', userId);
+    console.log('[AddCarScreen] - CurrentUser prop:', currentUser);
+    console.log('[AddCarScreen] - User ID from currentUser:', currentUser?.id);
+    console.log('[AddCarScreen] - User email from currentUser:', currentUser?.email);
+    
+    if (!currentUser || !currentUser.id) {
+      console.warn('[AddCarScreen] ⚠️ No current user! Redirecting to main...');
+      Alert.alert(
+        'Authentication Required',
+        'Please log in to add a car.',
+        [{ text: 'OK', onPress: () => goBackToMain() }]
+      );
+      return;
+    }
+    
+    console.log('[AddCarScreen] ✅ User authenticated and ready!');
+  }, [userId, currentUser]);
 
   // Static data
   const vehicleTypes = CarService.getVehicleTypes();
@@ -110,12 +132,14 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
   // Mutation for adding car
   const addCarMutation = useMutation({
     mutationFn: async (carData) => {
-      const savedCar = await CarService.addCar(userId, carData);
+      const userIdToUse = currentUser?.id || userId;
+      console.log('[AddCarScreen] Using user ID for car creation:', userIdToUse);
+      const savedCar = await CarService.addCar(userIdToUse, carData);
       
       let photoUploadResult = null;
       if (photos.length > 0) {
         try {
-          photoUploadResult = await CarService.uploadCarPhotos(savedCar.id, userId, photos);
+          photoUploadResult = await CarService.uploadCarPhotos(savedCar.id, userIdToUse, photos);
           console.log('[AddCarScreen] Photo upload result:', photoUploadResult);
         } catch (photoError) {
           console.warn('[AddCarScreen] Photo upload failed, but car was saved:', photoError.message);
@@ -128,8 +152,9 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
     },
     onSuccess: (result) => {
       // Invalidate and refetch any car-related queries
+      const userIdToUse = currentUser?.id || userId;
       queryClient.invalidateQueries({ queryKey: ['cars'] });
-      queryClient.invalidateQueries({ queryKey: ['userCars', userId] });
+      queryClient.invalidateQueries({ queryKey: ['userCars', userIdToUse] });
       
       let message = t.carAddedSuccess;
       
@@ -511,11 +536,25 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
     const { valid, resolvedBrandId, resolvedModelId } = validateForm();
     if (!valid) return;
 
-    // Validate selected photos FIRST using CLIP zero-shot via Hugging Face API
+    // Validate selected photos FIRST using AI validation
     setIsValidatingPhotos(true);
+    
+    // Show user-friendly message about validation time
+    const validationAlert = Alert.alert(
+      'Validating Photos',
+      'AI is analyzing your photos to ensure they show a vehicle. This may take up to 2 minutes...',
+      [],
+      { cancelable: false }
+    );
+    
     try {
       if (vehicleType === 'car' || vehicleType === 'motorcycle') {
+        console.log('[AddCarScreen] Starting photo validation with 2-minute timeout...');
         const result = await imageValidationService.validateVehiclePhotos({ vehicleType, photos });
+        
+        // Dismiss the validation alert
+        Alert.dismissAlert?.(validationAlert);
+        console.log('[AddCarScreen] Photo validation completed:', result);
         // If validator unavailable (no API key / rate limited), block with a clear message
         if (result?.skippedAll) {
           const reasonLine = result?.reason ? `\n(${result.reason})` : '';
@@ -548,6 +587,10 @@ const AddCarScreen = ({ goBackToMain, selectedLanguage, userId }) => {
         }
       }
     } catch (e) {
+      // Dismiss the validation alert
+      Alert.dismissAlert?.(validationAlert);
+      console.error('[AddCarScreen] Photo validation error:', e);
+      
       // If validation throws (network etc.), block to avoid uploading without checks
       Alert.alert(
         t.error,

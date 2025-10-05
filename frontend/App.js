@@ -39,14 +39,16 @@ import locationService from './src/services/locationService'
 import subscriptionStatusManager from './src/services/subscriptionStatusManager'
 
 // Configure global notification handler: suppress OS banner while app is in foreground
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    // Foreground: no system banner/sound; background delivery unaffected
-    shouldShowAlert: false,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
-});
+if (Platform.OS !== 'web') {
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      // Foreground: no system banner/sound; background delivery unaffected
+      shouldShowAlert: false,
+      shouldPlaySound: false,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 // Ensure Android channel exists (required for heads-up notifications on Android)
 async function ensureAndroidChannel() {
@@ -61,7 +63,9 @@ async function ensureAndroidChannel() {
   }
 
 }
-ensureAndroidChannel();
+if (Platform.OS !== 'web') {
+  ensureAndroidChannel();
+}
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window')
 const SWIPE_THRESHOLD = SCREEN_WIDTH * 0.25
@@ -1432,8 +1436,10 @@ useEffect(() => {
     )
   }
 
+  const GestureWrapper = Platform.OS === 'web' ? View : GestureHandlerRootView;
+  
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
+    <GestureWrapper style={{ flex: 1 }}>
       <UnreadCountProvider>
         <Container style={{ flex: 1 }}>
           <StatusBar style="dark" />
@@ -1775,7 +1781,7 @@ useEffect(() => {
           </PanGestureHandler>
         </Container>
       </UnreadCountProvider>
-    </GestureHandlerRootView>
+    </GestureWrapper>
   )
 }
 

@@ -55,7 +55,13 @@ router.post('/validate-photos', upload.array('photos', 10), async (req, res) => 
     // Cleanup temp files
     imagePaths.forEach(p => { try { fs.unlinkSync(p); } catch (_) {} });
 
-    return res.json(result);
+    // Return appropriate HTTP status based on validation result
+    if (result.ok) {
+      return res.status(200).json(result);
+    } else {
+      // Return 200 with validation errors (not a server error, just validation failed)
+      return res.status(200).json(result);
+    }
   } catch (e) {
     console.error('[validator] Error:', e);
     return res.status(500).json({ ok: false, reason: e.message, invalid: [] });

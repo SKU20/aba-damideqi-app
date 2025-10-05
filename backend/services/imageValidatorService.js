@@ -28,16 +28,24 @@ function runPythonValidator({ vehicleType, imagePaths }) {
         if (code !== 0) {
           console.error('[imageValidatorService] Python validator failed with code:', code);
           console.error('[imageValidatorService] Error output:', err);
+          console.error('[imageValidatorService] Stdout output:', out);
           return reject(new Error(err || `validator exited with code ${code}`));
         }
+        
+        const trimmed = out.trim();
+        if (!trimmed) {
+          console.error('[imageValidatorService] Python validator returned empty output');
+          return reject(new Error('Python validator returned empty output'));
+        }
+        
         try {
-          const json = JSON.parse(out.trim());
+          const json = JSON.parse(trimmed);
           console.log('[imageValidatorService] Python validation result:', json);
           resolve(json);
         } catch (e) {
           console.error('[imageValidatorService] Failed to parse validator output:', e.message);
-          console.error('[imageValidatorService] Raw output:', out);
-          reject(new Error(`Failed to parse validator output: ${e.message}. Raw: ${out}`));
+          console.error('[imageValidatorService] Raw output:', trimmed);
+          reject(new Error(`Failed to parse validator output: ${e.message}. Raw: ${trimmed.substring(0, 200)}`));
         }
       });
 

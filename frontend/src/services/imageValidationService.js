@@ -109,11 +109,37 @@ export async function validateVehiclePhotos({ vehicleType, photos }) {
       
       console.log('[imageValidation] Response status:', res.status);
 
-      if (!res.ok) {
-        const txt = await res.text();
-        return { ok: false, reason: `Validator HTTP ${res.status}: ${txt}`, engineCount: 0, invalid: [], skippedAll: false };
+      let data;
+      try {
+        const text = await res.text();
+        console.log('[imageValidation] Raw response:', text.substring(0, 200));
+        data = JSON.parse(text);
+      } catch (parseError) {
+        console.error('[imageValidation] JSON parse error:', parseError);
+        return { 
+          ok: false, 
+          reason: 'Server returned invalid response. Please try again.', 
+          engineCount: 0, 
+          invalid: [], 
+          skippedAll: false 
+        };
       }
-      const data = await res.json();
+      
+      // Even if HTTP status is not OK, the validator might return useful validation errors
+      if (!res.ok) {
+        console.warn('[imageValidation] HTTP error but checking for validation data:', data);
+        // If we have validation data with a reason, use that instead of HTTP error
+        if (data && data.reason) {
+          return {
+            ok: false,
+            reason: data.reason,
+            engineCount: data.engineCount || 0,
+            invalid: data.invalid || [],
+            skippedAll: false
+          };
+        }
+        return { ok: false, reason: `Validator HTTP ${res.status}`, engineCount: 0, invalid: [], skippedAll: false };
+      }
       // Normalize shape to what AddCarScreen expects
       return {
         ok: !!data.ok,

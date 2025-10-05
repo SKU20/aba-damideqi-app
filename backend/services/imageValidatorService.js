@@ -41,11 +41,11 @@ function runPythonValidator({ vehicleType, imagePaths }) {
         }
       });
 
-      // Timeout after 25 seconds
+      // Timeout after 120 seconds (2 minutes for first model download)
       setTimeout(() => {
         py.kill();
         reject(new Error('Python validation timeout'));
-      }, 25000);
+      }, 120000);
 
     } catch (e) {
       console.error('[imageValidatorService] Error starting Python validator:', e);
